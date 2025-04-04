@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using McpUnity.Unity;
+using McpUnity.Services;
 using UnityEditor;
 using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
@@ -14,26 +15,21 @@ namespace McpUnity.Tools
     /// </summary>
     public class RunTestsTool : McpToolBase, ICallbacks
     {
-        /// <summary>
-        /// Supported test modes for Unity Test Runner
-        /// </summary>
-        private enum TestMode
-        {
-            EditMode,
-            PlayMode
-        }
-
+        private readonly ITestRunnerService _testRunnerService;
         private TaskCompletionSource<JObject> _testCompletionSource;
         private int _testCount;
         private int _passCount;
         private int _failCount;
         private List<JObject> _testResults;
 
-        public RunTestsTool()
+        public RunTestsTool(ITestRunnerService testRunnerService)
         {
             Name = "run_tests";
             Description = "Runs Unity's Test Runner tests";
             IsAsync = true;
+            
+            _testRunnerService = testRunnerService;
+            _testRunnerService.TestRunnerApi.RegisterCallbacks(this);
         }
 
         public override JObject Execute(JObject parameters)
@@ -41,19 +37,19 @@ namespace McpUnity.Tools
             throw new NotSupportedException("This tool only supports async execution. Please use ExecuteAsync instead.");
         }
 
-        public override async Task<JObject> ExecuteAsync(JObject parameters)
+        public override void ExecuteAsync(JObject parameters, TaskCompletionSource<JObject> tcs)
         {
             // Extract parameters
             string testMode = parameters["testMode"]?.ToObject<string>() ?? "EditMode";
-            string testFilter = parameters["testFilter"]?.ToObject<string>();
 
             // Validate test mode
             if (!Enum.TryParse<TestMode>(testMode, true, out var mode))
             {
-                return McpUnitySocketHandler.CreateErrorResponse(
+                tcs.SetResult(McpUnitySocketHandler.CreateErrorResponse(
                     $"Invalid test mode '{testMode}'. Valid modes are: EditMode, PlayMode",
                     "validation_error"
-                );
+                ));
+                return;
             }
 
             // Initialize test tracking
@@ -61,49 +57,23 @@ namespace McpUnity.Tools
             _passCount = 0;
             _failCount = 0;
             _testResults = new List<JObject>();
-            _testCompletionSource = new TaskCompletionSource<JObject>();
+            _testCompletionSource = tcs;
 
             try
             {
-                var testRunnerApi = ScriptableObject.CreateInstance<TestRunnerApi>();
-                testRunnerApi.RegisterCallbacks(this);
-
-                var filter = new Filter
-                {
-                    testMode = mode == TestMode.EditMode ? TestMode.EditMode : TestMode.PlayMode
-                };
-
-                if (!string.IsNullOrEmpty(testFilter))
-                {
-                    filter.testNames = new[] { testFilter };
-                }
-
-                testRunnerApi.Execute(new ExecutionSettings(filter));
-
-                // Wait for test completion or timeout after 5 minutes
-                var timeoutTask = Task.Delay(TimeSpan.FromMinutes(5));
-                var completedTask = await Task.WhenAny(_testCompletionSource.Task, timeoutTask);
-
-                if (completedTask == timeoutTask)
-                {
-                    return McpUnitySocketHandler.CreateErrorResponse(
-                        "Failed to run tests: Request timed out",
-                        "timeout_error"
-                    );
-                }
-
-                return await _testCompletionSource.Task;
+                string testFilter = parameters["testFilter"]?.ToObject<string>();
+                _testRunnerService.ExecuteTests(mode, testFilter, tcs);
             }
             catch (Exception ex)
             {
-                return McpUnitySocketHandler.CreateErrorResponse(
+                tcs.SetResult(McpUnitySocketHandler.CreateErrorResponse(
                     $"Failed to run tests: {ex.Message}",
                     "execution_error"
-                );
+                ));
             }
         }
 
-        public void RunStarted(ITestAdapterRef testsToRun)
+        public void RunStarted(ITestAdaptor testsToRun)
         {
             _testCount = testsToRun.TestCaseCount;
             
@@ -121,7 +91,7 @@ namespace McpUnity.Tools
             }
         }
 
-        public void RunFinished(ITestResultAdapterRef testResults)
+        public void RunFinished(ITestResultAdaptor testResults)
         {
             var response = new JObject
             {
@@ -136,12 +106,12 @@ namespace McpUnity.Tools
             _testCompletionSource.TrySetResult(response);
         }
 
-        public void TestStarted(ITestAdapterRef test)
+        public void TestStarted(ITestAdaptor test)
         {
             // Optional: Add test started tracking if needed
         }
 
-        public void TestFinished(ITestResultAdapterRef result)
+        public void TestFinished(ITestResultAdaptor result)
         {
             if (result.TestStatus == TestStatus.Passed)
             {
@@ -154,7 +124,7 @@ namespace McpUnity.Tools
 
             _testResults.Add(new JObject
             {
-                ["name"] = result.Name,
+                ["name"] = result.Test.Name,
                 ["status"] = result.TestStatus.ToString(),
                 ["message"] = result.Message,
                 ["duration"] = result.Duration

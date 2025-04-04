@@ -6,11 +6,12 @@ using McpUnity.Unity;
 using UnityEngine;
 using UnityEditor;
 using Newtonsoft.Json.Linq;
+using System.Linq;
 
 namespace McpUnity.Tools
 {
     /// <summary>
-    /// Tool for updating component data in the Unity Editor
+    /// Tool for updating component fields on GameObjects
     /// </summary>
     public class UpdateComponentTool : McpToolBase
     {
@@ -26,104 +27,151 @@ namespace McpUnity.Tools
         /// <param name="parameters">Tool parameters as a JObject</param>
         public override JObject Execute(JObject parameters)
         {
-            // Extract parameters
-            int? instanceId = parameters["instanceId"]?.ToObject<int?>();
-            string objectPath = parameters["objectPath"]?.ToObject<string>();
-            string componentName = parameters["componentName"]?.ToObject<string>();
-            JObject componentData = parameters["componentData"] as JObject;
-            
-            // Validate parameters - require either instanceId or objectPath
-            if (!instanceId.HasValue && string.IsNullOrEmpty(objectPath))
+            GameObject targetObject = null;
+
+            // Try to find by instance ID first
+            if (parameters["instanceId"] != null)
+            {
+                int instanceId = parameters["instanceId"].ToObject<int>();
+                targetObject = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
+            }
+            // Then try by path
+            else if (parameters["objectPath"] != null)
+            {
+                string objectPath = parameters["objectPath"].ToObject<string>();
+                targetObject = GameObject.Find(objectPath);
+            }
+
+            // Validate GameObject
+            if (targetObject == null)
             {
                 return McpUnitySocketHandler.CreateErrorResponse(
-                    "Either 'instanceId' or 'objectPath' must be provided", 
-                    "validation_error"
+                    $"GameObject with path '{parameters["objectPath"]}' or instance ID {parameters["instanceId"]} not found",
+                    "object_not_found"
                 );
             }
-            
+
+            // Get component name and validate
+            string componentName = parameters["componentName"]?.ToObject<string>();
             if (string.IsNullOrEmpty(componentName))
             {
                 return McpUnitySocketHandler.CreateErrorResponse(
-                    "Required parameter 'componentName' not provided", 
+                    "Required parameter 'componentName' not provided",
                     "validation_error"
                 );
             }
-            
-            // Find the GameObject by instance ID or path
-            GameObject gameObject = null;
-            string identifier = "unknown";
-            
-            if (instanceId.HasValue)
-            {
-                gameObject = EditorUtility.InstanceIDToObject(instanceId.Value) as GameObject;
-                identifier = $"ID {instanceId.Value}";
-            }
-            else
-            {
-                // Find by path
-                gameObject = GameObject.Find(objectPath);
-                identifier = $"path '{objectPath}'";
-                
-                if (gameObject == null)
-                {
-                    // Try to find using the Unity Scene hierarchy path
-                    gameObject = FindGameObjectByPath(objectPath);
-                }
-            }
-                    
-            if (gameObject == null)
+
+            // Find component type
+            Type componentType = AppDomain.CurrentDomain.GetAssemblies()
+                .SelectMany(a => a.GetTypes())
+                .FirstOrDefault(t => t.Name == componentName && typeof(Component).IsAssignableFrom(t));
+
+            if (componentType == null)
             {
                 return McpUnitySocketHandler.CreateErrorResponse(
-                    $"GameObject with path '{objectPath}' or instance ID {instanceId} not found", 
-                    "not_found_error"
+                    $"Component type '{componentName}' not found in Unity",
+                    "component_not_found"
                 );
             }
-            
-            Debug.Log($"[MCP Unity] Updating component '{componentName}' on GameObject '{gameObject.name}' (found by {identifier})");
-            
-            // Try to find the component by name
-            Component component = gameObject.GetComponent(componentName);
-            bool wasAdded = false;
-            
-            // If component not found, try to add it
-            if (component == null)
+
+            // Get or add component
+            Component component = targetObject.GetComponent(componentType) ?? targetObject.AddComponent(componentType);
+
+            // Get component data
+            JObject componentData = parameters["componentData"]?.ToObject<JObject>();
+            if (componentData == null)
             {
-                Type componentType = FindComponentType(componentName);
-                if (componentType == null)
+                return McpUnitySocketHandler.CreateErrorResponse(
+                    "Required parameter 'componentData' not provided",
+                    "validation_error"
+                );
+            }
+
+            // Validate and update each field
+            var invalidFields = new JArray();
+            foreach (var field in componentData.Properties())
+            {
+                try
                 {
-                    return McpUnitySocketHandler.CreateErrorResponse(
-                        $"Component type '{componentName}' not found in Unity", 
-                        "component_error"
-                    );
+                    // Get the property or field info
+                    PropertyInfo prop = componentType.GetProperty(field.Name, 
+                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                    FieldInfo fieldInfo = componentType.GetField(field.Name, 
+                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+
+                    if (prop == null && fieldInfo == null)
+                    {
+                        invalidFields.Add(new JObject
+                        {
+                            ["name"] = field.Name,
+                            ["reason"] = "Field not found on component"
+                        });
+                        continue;
+                    }
+
+                    // Get the type we need to convert to
+                    Type targetType = prop?.PropertyType ?? fieldInfo.FieldType;
+                    
+                    try
+                    {
+                        // Convert the value to the correct type
+                        object value = field.Value.ToObject(targetType);
+
+                        // Set the value
+                        if (prop != null && prop.CanWrite)
+                        {
+                            prop.SetValue(component, value);
+                        }
+                        else if (fieldInfo != null)
+                        {
+                            fieldInfo.SetValue(component, value);
+                        }
+                        else
+                        {
+                            invalidFields.Add(new JObject
+                            {
+                                ["name"] = field.Name,
+                                ["reason"] = "Field is read-only"
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        invalidFields.Add(new JObject
+                        {
+                            ["name"] = field.Name,
+                            ["reason"] = $"Invalid value format: {ex.Message}"
+                        });
+                    }
                 }
-                
-                component = Undo.AddComponent(gameObject, componentType);
-                wasAdded = true;
-                Debug.Log($"[MCP Unity] Added component '{componentName}' to GameObject '{gameObject.name}'");
+                catch (Exception ex)
+                {
+                    invalidFields.Add(new JObject
+                    {
+                        ["name"] = field.Name,
+                        ["reason"] = $"Error accessing field: {ex.Message}"
+                    });
+                }
             }
-            
-            // Update component fields
-            if (componentData != null && componentData.Count > 0)
-            {
-                UpdateComponentData(component, componentData);
-            }
-            
-            // Ensure changes are saved
-            EditorUtility.SetDirty(gameObject);
-            if (PrefabUtility.IsPartOfAnyPrefab(gameObject))
-            {
-                PrefabUtility.RecordPrefabInstancePropertyModifications(component);
-            }
-            
-            // Create the response
-            return new JObject
+
+            // Create response
+            var response = new JObject
             {
                 ["success"] = true,
-                ["type"] = "text",
-                ["message"] = wasAdded
-                    ? $"Successfully added component '{componentName}' to GameObject '{gameObject.name}' and updated its data"
-                    : $"Successfully updated component '{componentName}' on GameObject '{gameObject.name}'"
+                ["message"] = invalidFields.Count > 0
+                    ? $"Updated component '{componentName}' with some invalid fields"
+                    : $"Successfully updated component '{componentName}' on GameObject '{targetObject.name}'",
+                ["componentName"] = componentName,
+                ["gameObjectName"] = targetObject.name,
+                ["instanceId"] = targetObject.GetInstanceID()
             };
+
+            if (invalidFields.Count > 0)
+            {
+                response["invalidFields"] = invalidFields;
+            }
+
+            return response;
         }
         
         /// <summary>

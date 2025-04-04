@@ -24,76 +24,59 @@ namespace McpUnity.Tools
         /// <param name="parameters">Tool parameters as a JObject</param>
         public override JObject Execute(JObject parameters)
         {
-            GameObject targetObject = null;
-
-            // Try to find by instance ID first
-            if (parameters["instanceId"] != null)
-            {
-                int instanceId = parameters["instanceId"].ToObject<int>();
-                targetObject = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
-                
-                if (targetObject == null)
-                {
-                    return McpUnitySocketHandler.CreateErrorResponse(
-                        $"GameObject with instance ID {instanceId} not found",
-                        "object_not_found"
-                    );
-                }
-            }
-            // Then try by path/name
-            else if (parameters["objectPath"] != null)
-            {
-                string objectPath = parameters["objectPath"].ToObject<string>();
-                
-                if (string.IsNullOrEmpty(objectPath))
-                {
-                    return McpUnitySocketHandler.CreateErrorResponse(
-                        "Object path cannot be empty",
-                        "validation_error"
-                    );
-                }
-
-                // Try to find by full path first
-                targetObject = GameObject.Find(objectPath);
-
-                // If not found, try to find by name
-                if (targetObject == null)
-                {
-                    var allObjects = UnityEngine.Resources.FindObjectsOfTypeAll<GameObject>();
-                    foreach (var obj in allObjects)
-                    {
-                        if (obj.name == objectPath)
-                        {
-                            targetObject = obj;
-                            break;
-                        }
-                    }
-                }
-
-                if (targetObject == null)
-                {
-                    return McpUnitySocketHandler.CreateErrorResponse(
-                        $"GameObject with path or name '{objectPath}' not found",
-                        "object_not_found"
-                    );
-                }
-            }
-            else
+            // Extract parameters
+            string objectPath = parameters["objectPath"]?.ToObject<string>();
+            int? instanceId = parameters["instanceId"]?.ToObject<int?>();
+            
+            // Validate parameters - require either objectPath or instanceId
+            if (string.IsNullOrEmpty(objectPath) && !instanceId.HasValue)
             {
                 return McpUnitySocketHandler.CreateErrorResponse(
-                    "Either instanceId or objectPath must be provided",
+                    "Required parameter 'objectPath' or 'instanceId' not provided", 
                     "validation_error"
                 );
             }
+            
+            GameObject foundObject = null;
+            string identifier = "";
 
-            // Select the object
-            Selection.activeGameObject = targetObject;
+            // First try to find by instance ID if provided
+            if (instanceId.HasValue)
+            {
+                foundObject = EditorUtility.InstanceIDToObject(instanceId.Value) as GameObject;
+                identifier = $"instance ID {instanceId.Value}";
+            }
+            // Otherwise, try to find by object path/name if provided
+            else
+            {
+                // Try to find the object by path in the hierarchy
+                foundObject = GameObject.Find(objectPath);
+                identifier = $"path '{objectPath}'";
+            }
 
+            // Check if we actually found the object
+            if (foundObject == null)
+            {
+                return McpUnitySocketHandler.CreateErrorResponse(
+                    $"GameObject with {identifier} not found",
+                    "not_found_error"
+                );
+            }
+
+            // Set the selection and ping the object
+            Selection.activeGameObject = foundObject;
+            EditorGUIUtility.PingObject(foundObject);
+            
+            // Log the selection
+            Debug.Log($"[MCP Unity] Selected GameObject: {foundObject.name} (found by {identifier})");
+            
+            // Create the response with instanceId for tracking
             return new JObject
             {
                 ["success"] = true,
-                ["message"] = $"Successfully selected GameObject: {targetObject.name}",
-                ["instanceId"] = targetObject.GetInstanceID()
+                ["message"] = $"Successfully selected GameObject: {foundObject.name}",
+                ["type"] = "text",
+                ["instanceId"] = foundObject.GetInstanceID()
             };
         }
     }

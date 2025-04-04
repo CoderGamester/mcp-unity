@@ -87,88 +87,47 @@ namespace McpUnity.Tools
                 );
             }
 
-            // Validate and update each field
-            var invalidFields = new JArray();
-            foreach (var field in componentData.Properties())
+            // Update component fields
+            List<JObject> updateErrors = new List<JObject>();
+            if (componentData != null && componentData.Count > 0)
             {
-                try
+                updateErrors = UpdateComponentData(component, componentData);
+            }
+            
+            // Ensure changes are saved if there were no errors
+            if (updateErrors.Count == 0)
+            {
+                EditorUtility.SetDirty(targetObject);
+                if (PrefabUtility.IsPartOfAnyPrefab(targetObject))
                 {
-                    // Get the property or field info
-                    PropertyInfo prop = componentType.GetProperty(field.Name, 
-                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-                    FieldInfo fieldInfo = componentType.GetField(field.Name, 
-                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-
-                    if (prop == null && fieldInfo == null)
-                    {
-                        invalidFields.Add(new JObject
-                        {
-                            ["name"] = field.Name,
-                            ["reason"] = "Field not found on component"
-                        });
-                        continue;
-                    }
-
-                    // Get the type we need to convert to
-                    Type targetType = prop?.PropertyType ?? fieldInfo.FieldType;
-                    
-                    try
-                    {
-                        // Convert the value to the correct type
-                        object value = field.Value.ToObject(targetType);
-
-                        // Set the value
-                        if (prop != null && prop.CanWrite)
-                        {
-                            prop.SetValue(component, value);
-                        }
-                        else if (fieldInfo != null)
-                        {
-                            fieldInfo.SetValue(component, value);
-                        }
-                        else
-                        {
-                            invalidFields.Add(new JObject
-                            {
-                                ["name"] = field.Name,
-                                ["reason"] = "Field is read-only"
-                            });
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        invalidFields.Add(new JObject
-                        {
-                            ["name"] = field.Name,
-                            ["reason"] = $"Invalid value format: {ex.Message}"
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    invalidFields.Add(new JObject
-                    {
-                        ["name"] = field.Name,
-                        ["reason"] = $"Error accessing field: {ex.Message}"
-                    });
+                    PrefabUtility.RecordPrefabInstancePropertyModifications(component);
                 }
             }
-
-            // Create response
-            var response = new JObject
+            
+            // Create the response based on success/failure
+            bool success = updateErrors.Count == 0;
+            string message;
+            if (success)
             {
-                ["success"] = true,
-                ["message"] = invalidFields.Count > 0
-                    ? $"Updated component '{componentName}' with some invalid fields"
-                    : $"Successfully updated component '{componentName}' on GameObject '{targetObject.name}'",
-                ["componentName"] = componentName,
-                ["gameObjectName"] = targetObject.name,
-                ["instanceId"] = targetObject.GetInstanceID()
+                message = targetObject.GetComponent(componentType) == null
+                    ? $"Successfully added component '{componentName}' to GameObject '{targetObject.name}' and updated its data"
+                    : $"Successfully updated component '{componentName}' on GameObject '{targetObject.name}'";
+            }
+            else
+            {
+                message = $"Failed to fully update component '{componentName}' on GameObject '{targetObject.name}'. See errors for details.";
+            }
+
+            JObject response = new JObject
+            {
+                ["success"] = success,
+                ["type"] = "text",
+                ["message"] = message
             };
 
-            if (invalidFields.Count > 0)
+            if (!success)
             {
-                response["invalidFields"] = invalidFields;
+                response["errors"] = new JArray(updateErrors);
             }
 
             return response;
@@ -283,16 +242,17 @@ namespace McpUnity.Tools
         /// </summary>
         /// <param name="component">The component to update</param>
         /// <param name="componentData">The data to apply to the component</param>
-        /// <returns>True if the component was updated successfully</returns>
-        private bool UpdateComponentData(Component component, JObject componentData)
+        /// <returns>A list of JObjects detailing any errors encountered. Empty list means success.</returns>
+        private List<JObject> UpdateComponentData(Component component, JObject componentData)
         {
+            List<JObject> errors = new List<JObject>();
             if (component == null || componentData == null)
             {
-                return false;
+                errors.Add(new JObject { ["name"] = "component", ["reason"] = "Component or data was null" });
+                return errors;
             }
             
             Type componentType = component.GetType();
-            bool anySuccess = false;
             
             // Record object for undo
             Undo.RecordObject(component, $"Update {componentType.Name} fields");
@@ -300,33 +260,56 @@ namespace McpUnity.Tools
             // Process each field in the component data
             foreach (var property in componentData.Properties())
             {
-                string fieldName = property.Name;
-                JToken fieldValue = property.Value;
+                string memberName = property.Name;
+                JToken memberValue = property.Value;
                 
                 // Skip null values
-                if (fieldValue.Type == JTokenType.Null)
+                if (memberValue.Type == JTokenType.Null)
                 {
                     continue;
                 }
-                
-                // Try to update field
-                FieldInfo fieldInfo = componentType.GetField(fieldName, 
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    
-                if (fieldInfo != null)
+
+                try
                 {
-                    object value = ConvertJTokenToValue(fieldValue, fieldInfo.FieldType);
-                    fieldInfo.SetValue(component, value);
-                    anySuccess = true;
-                    continue;
+                    PropertyInfo propInfo = componentType.GetProperty(memberName, 
+                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+
+                    if (propInfo != null && propInfo.CanWrite)
+                    {
+                        object value = ConvertJTokenToValue(memberValue, propInfo.PropertyType);
+                        propInfo.SetValue(component, value);
+                        continue; // Successfully set property
+                    }
+
+                    // If no writable property found, try fields
+                    FieldInfo fieldInfo = componentType.GetField(memberName, 
+                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        
+                    if (fieldInfo != null)
+                    {
+                        object value = ConvertJTokenToValue(memberValue, fieldInfo.FieldType);
+                        fieldInfo.SetValue(component, value);
+                        continue; // Successfully set field
+                    }
+
+                    // If neither property nor field was found or usable
+                    errors.Add(new JObject
+                    {
+                        ["name"] = memberName,
+                        ["reason"] = propInfo != null ? "Property is read-only" : "Property or Field not found"
+                    });
                 }
-                else
+                catch (Exception ex) // Catch errors during conversion or SetValue
                 {
-                    Debug.LogWarning($"[MCP Unity] Field '{fieldName}' not found on component '{componentType.Name}'");
+                    errors.Add(new JObject
+                    {
+                        ["name"] = memberName,
+                        ["reason"] = $"Error setting value: {ex.Message}" // Include exception message
+                    });
                 }
             }
             
-            return anySuccess;
+            return errors;
         }
         
         /// <summary>
@@ -452,8 +435,9 @@ namespace McpUnity.Tools
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[MCP Unity] Error converting value to type {targetType.Name}: {ex.Message}");
-                return null;
+                Debug.LogError($"[MCP Unity] Error converting value '{token}' to type {targetType.Name}: {ex.Message}");
+                // Throw exception instead of returning null
+                throw new InvalidCastException($"Could not convert value '{token}' to type {targetType.Name}", ex);
             }
         }
     }

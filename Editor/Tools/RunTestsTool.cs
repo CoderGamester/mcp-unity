@@ -17,10 +17,10 @@ namespace McpUnity.Tools
     {
         private readonly ITestRunnerService _testRunnerService;
         private TaskCompletionSource<JObject> _testCompletionSource;
+        private List<JObject> _testResults;
         private int _testCount;
         private int _passCount;
         private int _failCount;
-        private List<JObject> _testResults;
 
         public RunTestsTool(ITestRunnerService testRunnerService)
         {
@@ -30,6 +30,7 @@ namespace McpUnity.Tools
             
             _testRunnerService = testRunnerService;
             _testRunnerService.TestRunnerApi.RegisterCallbacks(this);
+            _testResults = new List<JObject>();
         }
 
         public override JObject Execute(JObject parameters)
@@ -39,8 +40,18 @@ namespace McpUnity.Tools
 
         public override void ExecuteAsync(JObject parameters, TaskCompletionSource<JObject> tcs)
         {
+            _testCompletionSource = tcs;
+
+            // Reset counters and ensure results list exists
+            _testResults?.Clear();
+            _testResults = _testResults ?? new List<JObject>();
+            _testCount = 0;
+            _passCount = 0;
+            _failCount = 0;
+
             // Extract parameters
-            string testMode = parameters["testMode"]?.ToObject<string>() ?? "EditMode";
+            string testMode = parameters["testMode"]?.ToObject<string>()?.ToLower() ?? "editmode";
+            string testFilter = parameters["testFilter"]?.ToObject<string>();
 
             // Validate test mode
             if (!Enum.TryParse<TestMode>(testMode, true, out var mode))
@@ -52,16 +63,8 @@ namespace McpUnity.Tools
                 return;
             }
 
-            // Initialize test tracking
-            _testCount = 0;
-            _passCount = 0;
-            _failCount = 0;
-            _testResults = new List<JObject>();
-            _testCompletionSource = tcs;
-
             try
             {
-                string testFilter = parameters["testFilter"]?.ToObject<string>();
                 _testRunnerService.ExecuteTests(mode, testFilter, tcs);
             }
             catch (Exception ex)
@@ -75,60 +78,86 @@ namespace McpUnity.Tools
 
         public void RunStarted(ITestAdaptor testsToRun)
         {
-            _testCount = testsToRun.TestCaseCount;
+            if (testsToRun == null) return;
             
-            if (_testCount == 0)
-            {
-                _testCompletionSource.TrySetResult(new JObject
-                {
-                    ["success"] = false,
-                    ["message"] = "No tests found matching the specified criteria",
-                    ["testCount"] = 0,
-                    ["passCount"] = 0,
-                    ["failCount"] = 0,
-                    ["results"] = new JArray()
-                });
-            }
+            _testCount = testsToRun.TestCaseCount;
+            Debug.Log($"[MCP Unity] Starting test run with {_testCount} tests...");
         }
 
         public void RunFinished(ITestResultAdaptor testResults)
         {
-            var response = new JObject
+            try
             {
-                ["success"] = _failCount == 0,
-                ["message"] = $"Tests completed: {_passCount} passed, {_failCount} failed",
-                ["testCount"] = _testCount,
-                ["passCount"] = _passCount,
-                ["failCount"] = _failCount,
-                ["results"] = JArray.FromObject(_testResults)
-            };
+                Debug.Log($"[MCP Unity] Tests completed: {_passCount} passed, {_failCount} failed");
 
-            _testCompletionSource.TrySetResult(response);
+                var resultsArray = _testResults != null ? 
+                    JArray.FromObject(_testResults) : 
+                    new JArray();
+
+                var response = new JObject
+                {
+                    ["success"] = _failCount == 0,
+                    ["message"] = $"Tests completed: {_passCount} passed, {_failCount} failed",
+                    ["testCount"] = _testCount,
+                    ["passCount"] = _passCount,
+                    ["failCount"] = _failCount,
+                    ["results"] = resultsArray
+                };
+
+                _testCompletionSource?.TrySetResult(response);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[MCP Unity] Error in RunFinished: {ex.Message}");
+                if (_testCompletionSource != null && !_testCompletionSource.Task.IsCompleted)
+                {
+                    _testCompletionSource.TrySetResult(McpUnitySocketHandler.CreateErrorResponse(
+                        $"Error processing test results: {ex.Message}",
+                        "result_error"
+                    ));
+                }
+            }
         }
 
         public void TestStarted(ITestAdaptor test)
         {
-            // Optional: Add test started tracking if needed
+            if (test?.Name == null) return;
+            Debug.Log($"[MCP Unity] Starting test: {test.Name}");
         }
 
         public void TestFinished(ITestResultAdaptor result)
         {
-            if (result.TestStatus == TestStatus.Passed)
-            {
-                _passCount++;
-            }
-            else if (result.TestStatus == TestStatus.Failed)
-            {
-                _failCount++;
-            }
+            if (result?.Test == null) return;
 
-            _testResults.Add(new JObject
+            try
             {
-                ["name"] = result.Test.Name,
-                ["status"] = result.TestStatus.ToString(),
-                ["message"] = result.Message,
-                ["duration"] = result.Duration
-            });
+                string status = result.TestStatus.ToString();
+                Debug.Log($"[MCP Unity] Test finished: {result.Test.Name} - {status}");
+
+                if (result.TestStatus == TestStatus.Passed)
+                {
+                    _passCount++;
+                }
+                else if (result.TestStatus == TestStatus.Failed)
+                {
+                    _failCount++;
+                }
+
+                if (_testResults != null)
+                {
+                    _testResults.Add(new JObject
+                    {
+                        ["name"] = result.Test?.Name ?? "Unknown Test",
+                        ["status"] = status,
+                        ["message"] = result.Message ?? string.Empty,
+                        ["duration"] = result.Duration
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[MCP Unity] Error in TestFinished: {ex.Message}");
+            }
         }
     }
 }

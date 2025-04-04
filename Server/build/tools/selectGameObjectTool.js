@@ -30,6 +30,33 @@ export function createSelectGameObjectTool(server, mcpUnity, logger) {
             throw error;
         }
     });
+    return {
+        name: toolName,
+        description: toolDescription,
+        paramsSchema: paramsSchema,
+        handler: async (params) => {
+            // Custom validation since we can't use refine/superRefine while maintaining ZodObject type
+            if (params.objectPath === undefined && params.instanceId === undefined) {
+                throw new McpUnityError(ErrorType.VALIDATION, "Either 'objectPath' or 'instanceId' must be provided");
+            }
+            const response = await mcpUnity.sendRequest({
+                method: toolName,
+                params
+            });
+            if (!response.success) {
+                throw new McpUnityError(ErrorType.TOOL_EXECUTION, response.message || `Failed to select GameObject`);
+            }
+            return {
+                success: true,
+                message: response.message,
+                content: [{
+                        type: response.type,
+                        text: response.message || `Successfully selected GameObject`,
+                        instanceId: response.instanceId
+                    }]
+            };
+        }
+    };
 }
 /**
  * Handles selecting a GameObject in Unity
@@ -40,10 +67,6 @@ export function createSelectGameObjectTool(server, mcpUnity, logger) {
  * @throws McpUnityError if the request to Unity fails
  */
 async function toolHandler(mcpUnity, params) {
-    // Custom validation since we can't use refine/superRefine while maintaining ZodObject type
-    if (params.objectPath === undefined && params.instanceId === undefined) {
-        throw new McpUnityError(ErrorType.VALIDATION, "Either 'objectPath' or 'instanceId' must be provided");
-    }
     const response = await mcpUnity.sendRequest({
         method: toolName,
         params

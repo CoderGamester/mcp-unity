@@ -1,15 +1,22 @@
 {
   "name": "com.gamelovers.mcp-unity",
-  "displayName": "MCP Unity Server",
-  "author": "CoderGamester",
   "version": "1.0.0",
-  "unity": "2022.3",
-  "license": "MIT",
+  "displayName": "MCP Unity Server",
   "description": "The purpose of this package is to provide a MCP Unity Server for executing Unity operations and request Editor information from AI MCP enabled hosts",
+  "unity": "2022.3",
   "dependencies": {
     "com.unity.nuget.newtonsoft-json": "3.2.1",
-    "com.unity.editorcoroutines": "1.0.0"
+    "com.unity.editorcoroutines": "1.0.0",
+    "com.unity.test-framework": "1.1.33"
   },
-  "type": "library",
-  "hideInEditor": false
+  "keywords": [
+    "mcp",
+    "unity"
+  ],
+  "author": {
+    "name": "CoderGamester"
+  },
+  "testables": [
+    "com.gamelovers.mcp-unity"
+  ]
 }

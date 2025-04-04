@@ -99,7 +99,15 @@ namespace McpUnity.Unity
                 Debug.Log($"[MCP Unity] WebSocket message response: {responseStr}");
                 
                 // Send the response back to the client
-                Send(responseStr);
+                try
+                {
+                    Send(responseStr);
+                }
+                catch (Exception sendEx)
+                {
+                    Debug.LogError($"[MCP Unity] Failed to send successful response to client (Request ID: {requestId}): {sendEx.Message}\nResponse was: {responseStr}");
+                    // Optionally: Rethrow or handle differently if needed, but avoid sending another message if connection is likely broken.
+                }
             }
             catch (Exception ex)
             {

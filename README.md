@@ -6,6 +6,44 @@ The purpose of this package is to provide a MCP Unity Server for executing Unity
 
 ### Requirements
 - Unity 2022.3 or higher
+[![smithery badge](https://smithery.ai/badge/@CoderGamester/mcp-unity)](https://smithery.ai/server/@CoderGamester/mcp-unity)
+[![](https://img.shields.io/github/stars/CoderGamester/mcp-unity 'Stars')](https://github.com/CoderGamester/mcp-unity/stargazers)
+[![](https://img.shields.io/github/last-commit/CoderGamester/mcp-unity 'Last Commit')](https://github.com/CoderGamester/mcp-unity/commits/main)
+[![](https://img.shields.io/badge/License-MIT-red.svg 'MIT License')](https://opensource.org/licenses/MIT)
+
+| [English](README.md) | [🇨🇳简体中文](README_zh-CN.md) | [🇯🇵日本語](README-ja.md) |
+|----------------------|---------------------------------|----------------------|
+
+```                                                                        
+                              ,/(/.   *(/,                                  
+                          */(((((/.   *((((((*.                             
+                     .*((((((((((/.   *((((((((((/.                         
+                 ./((((((((((((((/    *((((((((((((((/,                     
+             ,/(((((((((((((/*.           */(((((((((((((/*.                
+            ,%%#((/((((((*                    ,/(((((/(#&@@(                
+            ,%%##%%##((((((/*.             ,/((((/(#&@@@@@@(                
+            ,%%######%%##((/(((/*.    .*/(((//(%@@@@@@@@@@@(                
+            ,%%####%#(%%#%%##((/((((((((//#&@@@@@@&@@@@@@@@(                
+            ,%%####%(    /#%#%%%##(//(#@@@@@@@%,   #@@@@@@@(                
+            ,%%####%(        *#%###%@@@@@@(        #@@@@@@@(                
+            ,%%####%(           #%#%@@@@,          #@@@@@@@(                
+            ,%%##%%%(           #%#%@@@@,          #@@@@@@@(                
+            ,%%%#*              #%#%@@@@,             *%@@@(                
+            .,      ,/##*.      #%#%@@@@,     ./&@#*      *`                
+                ,/#%#####%%#/,  #%#%@@@@, ,/&@@@@@@@@@&\.                    
+                 `*#########%%%%###%@@@@@@@@@@@@@@@@@@&*´                   
+                    `*%%###########%@@@@@@@@@@@@@@&*´                        
+                        `*%%%######%@@@@@@@@@@&*´                            
+                            `*#%%##%@@@@@&*´                                 
+                               `*%#%@&*´                                     
+                                                       
+     ███╗   ███╗ ██████╗██████╗         ██╗   ██╗███╗   ██╗██╗████████╗██╗   ██╗
+     ████╗ ████║██╔════╝██╔══██╗        ██║   ██║████╗  ██║██║╚══██╔══╝╚██╗ ██╔╝
+     ██╔████╔██║██║     ██████╔╝        ██║   ██║██╔██╗ ██║██║   ██║    ╚████╔╝ 
+     ██║╚██╔╝██║██║     ██╔═══╝         ██║   ██║██║╚██╗██║██║   ██║     ╚██╔╝  
+     ██║ ╚═╝ ██║╚██████╗██║             ╚██████╔╝██║ ╚████║██║   ██║      ██║   
+     ╚═╝     ╚═╝ ╚═════╝╚═╝              ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝      ╚═╝   
+```       
 
 ### Installation
 1. Open the Package Manager in Unity
@@ -32,5 +70,16 @@ Due to how Unity handles tests in local packages, you may need to manually copy 
 3. Open the Test Runner window (Window > General > Test Runner)
 4. Tests should now appear in the EditMode tab
 
+
 ## Further Documentation
 See the [Wiki](https://github.com/CoderGamester/mcp-unity/wiki) for full documentation.
+=======
+This project is under [MIT License](License.md)
+
+## Acknowledgements
+
+- [Model Context Protocol](https://modelcontextprotocol.io)
+- [Unity Technologies](https://unity.com)
+- [Node.js](https://nodejs.org)
+- [WebSocket-Sharp](https://github.com/sta/websocket-sharp)
+

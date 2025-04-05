@@ -4,7 +4,7 @@ import { ReadResourceResult } from '@modelcontextprotocol/sdk/types.js';
 import { McpUnity } from '../unity/mcpUnity.js';
 import { Variables } from '@modelcontextprotocol/sdk/shared/uriTemplate.js';
 import { McpUnityError, ErrorType } from '../utils/errors.js';
-import { resourceUri as hierarchyResourceUri } from './getHierarchyResource.js';
+import { resourceName as hierarchyResourceName } from './getHierarchyResource.js';
 
 // Constants for the resource
 const resourceName = 'get_gameobject';
@@ -24,7 +24,9 @@ export function createGetGameObjectResource(server: McpServer, mcpUnity: McpUnit
   const resourceTemplate = new ResourceTemplate(
     resourceUri, 
     { 
-      list: async () => listGameObjects(mcpUnity, logger, resourceMimeType)
+      // This list method is commented because is calling getHierarchyResource every second to the MCP client in the current format.
+      // TODO: Find a new way to implement this so that it doesn't request the list of game objects so often
+      list: undefined//async () => listGameObjects(mcpUnity, logger, resourceMimeType)
     }
   );
   logger.info(`Registering resource: ${resourceName}`);
@@ -94,7 +96,7 @@ async function resourceHandler(mcpUnity: McpUnity, uri: URL, variables: Variable
  */
 async function listGameObjects(mcpUnity: McpUnity, logger: Logger, resourceMimeType: string) {
   const hierarchyResponse = await mcpUnity.sendRequest({
-    method: hierarchyResourceUri,
+    method: hierarchyResourceName,
     params: {}
   });
   

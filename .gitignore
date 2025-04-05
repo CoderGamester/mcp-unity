@@ -9,6 +9,12 @@
 **/[Uu]ser[Ss]ettings/
 **/[Oo]bj/Debug/
 
+# Development logs and scripts
+log.txt
+log.txt.meta
+**/run_mcp_server_with_logging.sh
+**/run_mcp_server_with_logging.sh.meta
+
 # Asset meta data should only be ignored when the corresponding asset is also ignored
 !**/[Aa]ssets/**/*.meta
 

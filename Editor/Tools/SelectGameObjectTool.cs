@@ -37,32 +37,46 @@ namespace McpUnity.Tools
                 );
             }
             
+            GameObject foundObject = null;
+            string identifier = "";
+
             // First try to find by instance ID if provided
             if (instanceId.HasValue)
             {
-                Selection.activeGameObject = EditorUtility.InstanceIDToObject(instanceId.Value) as GameObject;
+                foundObject = EditorUtility.InstanceIDToObject(instanceId.Value) as GameObject;
+                identifier = $"instance ID {instanceId.Value}";
             }
             // Otherwise, try to find by object path/name if provided
             else
             {
                 // Try to find the object by path in the hierarchy
-                Selection.activeGameObject = GameObject.Find(objectPath);
+                foundObject = GameObject.Find(objectPath);
+                identifier = $"path '{objectPath}'";
             }
 
-            // Ping the selected object
-            EditorGUIUtility.PingObject(Selection.activeGameObject);
+            // Check if we actually found the object
+            if (foundObject == null)
+            {
+                return McpUnitySocketHandler.CreateErrorResponse(
+                    $"GameObject with {identifier} not found",
+                    "not_found_error"
+                );
+            }
+
+            // Set the selection and ping the object
+            Selection.activeGameObject = foundObject;
+            EditorGUIUtility.PingObject(foundObject);
             
             // Log the selection
-            Debug.Log($"[MCP Unity] Selected GameObject: " +
-                (instanceId.HasValue ? $"Instance ID {instanceId.Value}" : $"Path '{objectPath}'"));
+            Debug.Log($"[MCP Unity] Selected GameObject: {foundObject.name} (found by {identifier})");
             
-            // Create the response
+            // Create the response with instanceId for tracking
             return new JObject
             {
                 ["success"] = true,
+                ["message"] = $"Successfully selected GameObject: {foundObject.name}",
                 ["type"] = "text",
-                ["message"] = $"Successfully selected GameObject" + 
-                    (instanceId.HasValue ? $" with instance ID: {instanceId.Value}" : $": {objectPath}")
+                ["instanceId"] = foundObject.GetInstanceID()
             };
         }
     }

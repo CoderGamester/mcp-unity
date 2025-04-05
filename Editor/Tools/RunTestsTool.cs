@@ -1,12 +1,12 @@
 using System;
-using System.Threading;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using McpUnity.Unity;
+using McpUnity.Services;
+using UnityEditor;
+using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
 using Newtonsoft.Json.Linq;
-using System.Collections.Generic;
-using UnityEditor.TestTools.TestRunner.Api;
-using McpUnity.Services;
 
 namespace McpUnity.Tools
 {
@@ -16,169 +16,148 @@ namespace McpUnity.Tools
     public class RunTestsTool : McpToolBase, ICallbacks
     {
         private readonly ITestRunnerService _testRunnerService;
-        
-        private bool _isRunning = false;
-        private TaskCompletionSource<JObject> _testRunCompletionSource;
-        private List<TestResult> _testResults = new List<TestResult>();
-        
-        // Structure to store test results
-        private class TestResult
-        {
-            public string Name { get; set; }
-            public string FullName { get; set; }
-            public string ResultState { get; set; }
-            public string Message { get; set; }
-            public double Duration { get; set; }
-            public bool Passed => ResultState == "Passed";
-        }
-        
+        private TaskCompletionSource<JObject> _testCompletionSource;
+        private List<JObject> _testResults;
+        private int _testCount;
+        private int _passCount;
+        private int _failCount;
+
         public RunTestsTool(ITestRunnerService testRunnerService)
         {
             Name = "run_tests";
-            Description = "Runs tests using Unity's Test Runner";
+            Description = "Runs Unity's Test Runner tests";
             IsAsync = true;
             
             _testRunnerService = testRunnerService;
-            
-            // Register callbacks with the TestRunnerApi
             _testRunnerService.TestRunnerApi.RegisterCallbacks(this);
+            _testResults = new List<JObject>();
         }
-        
-        /// <summary>
-        /// Executes the RunTests tool asynchronously on the main thread.
-        /// </summary>
-        /// <param name="parameters">Tool parameters, including optional 'testMode' and 'testFilter'.</param>
-        /// <param name="tcs">TaskCompletionSource to set the result or exception.</param>
+
+        public override JObject Execute(JObject parameters)
+        {
+            throw new NotSupportedException("This tool only supports async execution. Please use ExecuteAsync instead.");
+        }
+
         public override void ExecuteAsync(JObject parameters, TaskCompletionSource<JObject> tcs)
         {
-            // Check if tests are already running
-            if (_isRunning)
+            _testCompletionSource = tcs;
+
+            // Reset counters and ensure results list exists
+            _testResults?.Clear();
+            _testResults = _testResults ?? new List<JObject>();
+            _testCount = 0;
+            _passCount = 0;
+            _failCount = 0;
+
+            // Extract parameters
+            string testMode = parameters["testMode"]?.ToObject<string>()?.ToLower() ?? "editmode";
+            string testFilter = parameters["testFilter"]?.ToObject<string>();
+
+            // Validate test mode
+            if (!Enum.TryParse<TestMode>(testMode, true, out var mode))
             {
                 tcs.SetResult(McpUnitySocketHandler.CreateErrorResponse(
-                    "Tests are already running. Please wait for them to complete.",
-                    "test_runner_busy"
+                    $"Invalid test mode '{testMode}'. Valid modes are: EditMode, PlayMode",
+                    "validation_error"
                 ));
                 return;
             }
-            
-            // Extract parameters
-            string testModeStr = parameters["testMode"]?.ToObject<string>() ?? "editmode";
-            string testFilter = parameters["testFilter"]?.ToObject<string>() ?? "";
-            
-            // Parse test mode
-            TestMode testMode;
-            switch (testModeStr.ToLowerInvariant())
-            {
-                case "playmode":
-                    testMode = TestMode.PlayMode;
-                    break;
-                case "editmode":
-                    testMode = TestMode.EditMode;
-                    break;
-                default:
-                    testMode = TestMode.EditMode;
-                    break;
-            }
-            
-            // Log the execution
-            Debug.Log($"[MCP Unity] Running tests: Mode={testMode}, Filter={testFilter}");
-            
-            // Reset state
-            _isRunning = true;
-            _testResults.Clear();
-            _testRunCompletionSource = tcs;
-            
-            // Execute tests using the TestRunnerService
-            _testRunnerService.ExecuteTests(
-                testMode, 
-                testFilter, 
-                tcs
-            );
-        }
-        
-        #region ICallbacks Implementation
-        
-        // Called when a test run starts
-        public void RunStarted(ITestAdaptor testsToRun)
-        {
-            Debug.Log($"[MCP Unity] Test run started: {testsToRun.Name}");
-        }
-        
-        // Called when a test runs
-        public void TestStarted(ITestAdaptor test)
-        {
-            // Nothing to do here
-        }
-        
-        // Called when a test finishes
-        public void TestFinished(ITestResultAdaptor result)
-        {
-            _testResults.Add(new TestResult
-            {
-                Name = result.Test.Name,
-                FullName = result.FullName,
-                ResultState = result.ResultState,
-                Message = result.Message,
-                Duration = result.Duration
-            });
-            
-            Debug.Log($"[MCP Unity] Test finished: {result.Test.Name} - {result.ResultState}");
-        }
-        
-        // Called when a test run completes
-        public void RunFinished(ITestResultAdaptor result)
-        {
-            Debug.Log($"[MCP Unity] Test run completed: {result.Test.Name} - {result.ResultState}");
-            
-            _isRunning = false;
-            
-            // Create test results summary
-            var summary = new JObject
-            {
-                ["testCount"] = _testResults.Count,
-                ["passCount"] = _testResults.FindAll(r => r.Passed).Count,
-                ["duration"] = result.Duration,
-                ["success"] = result.ResultState == "Passed",
-                ["status"] = "completed",
-                ["message"] = $"Test run completed: {result.Test.Name} - {result.ResultState}"
-            };
-            
-            // Add test results array
-            var resultArray = new JArray();
-            foreach (var testResult in _testResults)
-            {
-                resultArray.Add(new JObject
-                {
-                    ["name"] = testResult.Name,
-                    ["fullName"] = testResult.FullName,
-                    ["result"] = testResult.ResultState,
-                    ["message"] = testResult.Message,
-                    ["duration"] = testResult.Duration
-                });
-            }
-            summary["results"] = resultArray;
-            
-            // Set the test run completion result
+
             try
             {
-                _testRunCompletionSource.SetResult(new JObject
-                {
-                    ["success"] = true,
-                    ["type"] = "text",
-                    ["message"] = summary["message"].Value<string>()
-                });
+                _testRunnerService.ExecuteTests(mode, testFilter, tcs);
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[MCP Unity] Failed to set test results: {ex.Message}");
-                _testRunCompletionSource.TrySetException(ex);
-            }
-            finally
-            {
-                _testRunCompletionSource = null;
+                tcs.SetResult(McpUnitySocketHandler.CreateErrorResponse(
+                    $"Failed to run tests: {ex.Message}",
+                    "execution_error"
+                ));
             }
         }
-        
-        #endregion
+
+        public void RunStarted(ITestAdaptor testsToRun)
+        {
+            if (testsToRun == null) return;
+            
+            _testCount = testsToRun.TestCaseCount;
+            Debug.Log($"[MCP Unity] Starting test run with {_testCount} tests...");
+        }
+
+        public void RunFinished(ITestResultAdaptor testResults)
+        {
+            try
+            {
+                Debug.Log($"[MCP Unity] Tests completed: {_passCount} passed, {_failCount} failed");
+
+                var resultsArray = _testResults != null ? 
+                    JArray.FromObject(_testResults) : 
+                    new JArray();
+
+                var response = new JObject
+                {
+                    ["success"] = _failCount == 0,
+                    ["message"] = $"Tests completed: {_passCount} passed, {_failCount} failed",
+                    ["testCount"] = _testCount,
+                    ["passCount"] = _passCount,
+                    ["failCount"] = _failCount,
+                    ["results"] = resultsArray
+                };
+
+                _testCompletionSource?.TrySetResult(response);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[MCP Unity] Error in RunFinished: {ex.Message}");
+                if (_testCompletionSource != null && !_testCompletionSource.Task.IsCompleted)
+                {
+                    _testCompletionSource.TrySetResult(McpUnitySocketHandler.CreateErrorResponse(
+                        $"Error processing test results: {ex.Message}",
+                        "result_error"
+                    ));
+                }
+            }
+        }
+
+        public void TestStarted(ITestAdaptor test)
+        {
+            if (test?.Name == null) return;
+            Debug.Log($"[MCP Unity] Starting test: {test.Name}");
+        }
+
+        public void TestFinished(ITestResultAdaptor result)
+        {
+            if (result?.Test == null) return;
+
+            try
+            {
+                string status = result.TestStatus.ToString();
+                Debug.Log($"[MCP Unity] Test finished: {result.Test.Name} - {status}");
+
+                if (result.TestStatus == TestStatus.Passed)
+                {
+                    _passCount++;
+                }
+                else if (result.TestStatus == TestStatus.Failed)
+                {
+                    _failCount++;
+                }
+
+                if (_testResults != null)
+                {
+                    _testResults.Add(new JObject
+                    {
+                        ["name"] = result.Test?.Name ?? "Unknown Test",
+                        ["status"] = status,
+                        ["message"] = result.Message ?? string.Empty,
+                        ["duration"] = result.Duration
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[MCP Unity] Error in TestFinished: {ex.Message}");
+            }
+        }
     }
 }

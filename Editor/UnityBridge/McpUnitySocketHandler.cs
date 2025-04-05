@@ -77,7 +77,16 @@ namespace McpUnity.Unity
                 }
                 else
                 {
-                    tcs.SetResult(CreateErrorResponse($"Unknown method: {method}", "unknown_method"));
+                    // Check if we're trying to access a resource by URI
+                    var resourceByUri = FindResourceByUri(method);
+                    if (resourceByUri != null)
+                    {
+                        EditorCoroutineUtility.StartCoroutineOwnerless(FetchResourceCoroutine(resourceByUri, parameters, tcs));
+                    }
+                    else
+                    {
+                        tcs.SetResult(CreateErrorResponse($"Unknown method: {method}", "unknown_method"));
+                    }
                 }
                 
                 // Wait for the task to complete
@@ -90,7 +99,15 @@ namespace McpUnity.Unity
                 Debug.Log($"[MCP Unity] WebSocket message response: {responseStr}");
                 
                 // Send the response back to the client
-                Send(responseStr);
+                try
+                {
+                    Send(responseStr);
+                }
+                catch (Exception sendEx)
+                {
+                    Debug.LogError($"[MCP Unity] Failed to send successful response to client (Request ID: {requestId}): {sendEx.Message}\nResponse was: {responseStr}");
+                    // Optionally: Rethrow or handle differently if needed, but avoid sending another message if connection is likely broken.
+                }
             }
             catch (Exception ex)
             {
@@ -189,6 +206,29 @@ namespace McpUnity.Unity
             }
             
             yield return null;
+        }
+        
+        /// <summary>
+        /// Find a resource by its URI
+        /// </summary>
+        /// <param name="uri">The URI to search for</param>
+        /// <returns>The resource if found, null otherwise</returns>
+        private McpResourceBase FindResourceByUri(string uri)
+        {
+            // Get resources from the server
+            var resources = _server.Resources;
+            
+            // Look for a resource with a matching URI
+            foreach (var resource in resources.Values)
+            {
+                if (resource.Uri == uri)
+                {
+                    Debug.Log($"[MCP Unity] Found resource {resource.Name} by URI {uri}");
+                    return resource;
+                }
+            }
+            
+            return null;
         }
         
         /// <summary>

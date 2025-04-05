@@ -113,7 +113,12 @@ namespace McpUnity.Tools
                     }
                     else
                     {
-                        Debug.LogWarning($"[MCP Unity] Parent object not found, asset will be created at the root of the scene");
+                        // Parent not found, return an error instead of adding to root
+                        string identifier = parentId.HasValue ? $"ID {parentId.Value}" : $"path '{parentPath}'";
+                        return McpUnitySocketHandler.CreateErrorResponse(
+                            $"Parent GameObject not found with {identifier}", 
+                            "parent_not_found"
+                        );
                     }
                 }
                 

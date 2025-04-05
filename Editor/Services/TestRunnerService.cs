@@ -55,7 +55,7 @@ namespace McpUnity.Services
             TestMode testMode, 
             string testFilter, 
             TaskCompletionSource<JObject> completionSource, 
-            int timeoutMinutes = 1)
+            int timeoutMinutes = 10)
         {
             // Create filter
             var filter = new Filter

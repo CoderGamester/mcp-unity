@@ -132,22 +132,35 @@ export class McpUnity {
    */
   private handleMessage(data: string): void {
     try {
+      this.logger.debug(`Received raw message from Unity: ${data}`);
       const response = JSON.parse(data) as UnityResponse;
+      this.logger.debug(`Parsed response ID: ${response.id}`);
       
       if (response.id && this.pendingRequests.has(response.id)) {
+        this.logger.debug(`Found pending request for ID: ${response.id}`);
         const request = this.pendingRequests.get(response.id)!;
         clearTimeout(request.timeout);
         this.pendingRequests.delete(response.id);
         
         if (response.error) {
+          this.logger.warn(`Received error from Unity for ID ${response.id}: ${response.error.message}`);
           request.reject(new McpUnityError(
             ErrorType.TOOL_EXECUTION,
             response.error.message || 'Unknown error',
             response.error.details
           ));
         } else {
+          this.logger.info(`Received success from Unity for ID ${response.id}. Resolving promise.`);
+          try {
+            this.logger.debug(`Resolving with result: ${JSON.stringify(response.result)}`);
+          } catch (stringifyError) {
+            this.logger.warn(`Could not stringify result for logging: ${stringifyError}`);
+            this.logger.debug(`Resolving with result (object):`, response.result);
+          }
           request.resolve(response.result);
         }
+      } else {
+        this.logger.warn(`Received message from Unity with unknown or missing ID: ${response.id}`);
       }
     } catch (e) {
       this.logger.error(`Error parsing WebSocket message: ${e instanceof Error ? e.message : String(e)}`);

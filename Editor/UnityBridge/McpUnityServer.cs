@@ -67,6 +67,11 @@ namespace McpUnity.Unity
         public Dictionary<string, string> Clients => _clients;
         
         /// <summary>
+        /// Dictionary of registered resources
+        /// </summary>
+        public Dictionary<string, McpResourceBase> Resources => _resources;
+        
+        /// <summary>
         /// Private constructor to enforce singleton pattern
         /// </summary>
         private McpUnityServer()

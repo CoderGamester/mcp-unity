@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-16/server.schema.json",
+  "name": "io.github.codergamester/mcp-unity",
+  "description": "MCP Unity Server for executing Unity Editor operations and retrieving data via MCP.",
+  "version": "1.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registry_type": "npm",
+      "identifier": "mcp-unity",
+      "version": "1.2.0",
+      "transport": { "type": "stdio" }
+    }
+  ]
+}
+

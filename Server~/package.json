@@ -4,6 +4,7 @@
   "description": "MCP Unity Server for executing Unity operations and request Editor information",
   "main": "dist/index.js",
   "type": "module",
+  "mcpName": "io.github.codergamester/mcp-unity",
   "bin": {
     "mcp-unity-server": "./build/index.js"
   },

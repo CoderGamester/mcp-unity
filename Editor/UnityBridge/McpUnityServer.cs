@@ -265,6 +265,10 @@ namespace McpUnity.Unity
             // Register LoadSceneTool
             LoadSceneTool loadSceneTool = new LoadSceneTool();
             _tools.Add(loadSceneTool.Name, loadSceneTool);
+            
+            // Register RecompileScriptsTool
+            RecompileScriptsTool recompileScriptsTool = new RecompileScriptsTool();
+            _tools.Add(recompileScriptsTool.Name, recompileScriptsTool);
         }
         
         /// <summary>

@@ -401,6 +401,14 @@ namespace McpUnity.Unity
             WrappedLabel("Add the Player prefab from my project to the current scene", new GUIStyle(EditorStyles.miniLabel) { fontStyle = FontStyle.Italic });
             EditorGUILayout.EndVertical();
             
+            // recompile_scripts
+            WrappedLabel("recompile_scripts", EditorStyles.boldLabel);
+            WrappedLabel("Recompiles all scripts in the Unity project");
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField("Example prompt:", EditorStyles.miniLabel);
+            WrappedLabel("Recompile scripts in my project", new GUIStyle(EditorStyles.miniLabel) { fontStyle = FontStyle.Italic });
+            EditorGUILayout.EndVertical();
+            
             EditorGUILayout.EndVertical();
             
             // Available Resources section

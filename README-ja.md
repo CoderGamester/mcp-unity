@@ -86,6 +86,9 @@ MCP Unityは、Unityの`Library/PackedCache`フォルダーをワークスペー
 - `create_prefab`: プレハブを作成し、オプションでMonoBehaviourスクリプトとシリアライズされたフィールド値を設定
   > **例:** "'PlayerController'スクリプトから'Player'という名前のプレハブを作成"
 
+- `recompile_scripts`: Unityプロジェクト内のすべてのスクリプトを再コンパイル
+  > **例:** "Unityプロジェクト内のすべてのスクリプトを再コンパイル"
+
 ### MCPサーバーリソース
 
 - `unity://menu-items`: `execute_menu_item`ツールを容易にするために、Unityエディターで利用可能なすべてのメニュー項目のリストを取得

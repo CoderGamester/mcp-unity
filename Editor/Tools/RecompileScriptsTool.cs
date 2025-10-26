@@ -10,18 +10,32 @@ using UnityEditor.Compilation;
 using UnityEngine;
 
 namespace McpUnity.Tools {
+    /// <summary>
+    /// Tool to recompile all scripts in the Unity project
+    /// </summary>
     public class RecompileScriptsTool : McpToolBase
     {
+        private class CompilationRequest {
+            public readonly bool ReturnWithLogs;
+            public readonly int LogsLimit;
+            public readonly TaskCompletionSource<JObject> CompletionSource;
+            
+            public CompilationRequest(bool returnWithLogs, int logsLimit, TaskCompletionSource<JObject> completionSource)
+            {
+                ReturnWithLogs = returnWithLogs;
+                LogsLimit = logsLimit;
+                CompletionSource = completionSource;
+            }
+        }
+        
+        private readonly List<CompilationRequest> _pendingRequests = new List<CompilationRequest>();
         private readonly List<CompilerMessage> _compilationLogs = new List<CompilerMessage>();
-        private TaskCompletionSource<JObject> _completionSource;
         private int _processedAssemblies = 0;
-        private bool _returnWithLogs = true;
-        private int _logsLimit = 100;
 
         public RecompileScriptsTool()
         {
             Name = "recompile_scripts";
-            Description = "Recompiles all scripts in the Unity project. Use returnWithLogs parameter to control whether compilation logs are returned. Use logsLimit parameter to limit the number of logs returned when returnWithLogs is true.";
+            Description = "Recompiles all scripts in the Unity project";
             IsAsync = true; // Compilation is asynchronous
         }
 
@@ -32,68 +46,119 @@ namespace McpUnity.Tools {
         /// <param name="tcs">TaskCompletionSource to set the result or exception</param>
         public override void ExecuteAsync(JObject parameters, TaskCompletionSource<JObject> tcs)
         {
-            _completionSource = tcs;
-            _compilationLogs.Clear();
-            _processedAssemblies = 0;
-
             // Extract and store parameters
-            _returnWithLogs = GetBoolParameter(parameters, "returnWithLogs", true);
-            _logsLimit = Mathf.Clamp(GetIntParameter(parameters, "logsLimit", 100), 0, 1000);
-
-            CompilationPipeline.assemblyCompilationFinished += OnAssemblyCompilationFinished;
-            CompilationPipeline.compilationFinished += OnCompilationFinished;
-
-            if (EditorApplication.isCompiling == false) {
-                McpLogger.LogInfo($"Recompiling all scripts in the Unity project (logsLimit: {_logsLimit})");
-                CompilationPipeline.RequestScriptCompilation();
+            var returnWithLogs = GetBoolParameter(parameters, "returnWithLogs", true);
+            var logsLimit = Mathf.Clamp(GetIntParameter(parameters, "logsLimit", 100), 0, 1000);
+            var request = new CompilationRequest(returnWithLogs, logsLimit, tcs);
+            
+            bool hasActiveRequest = false;
+            lock (_pendingRequests)
+            {
+                hasActiveRequest = _pendingRequests.Count > 0;
+                _pendingRequests.Add(request);
             }
-            else {
+
+            if (hasActiveRequest)
+            {
                 McpLogger.LogInfo("Recompilation already in progress. Waiting for completion...");
+                return;
+            }
+            
+            // On first request, initialize compilation listeners and start compilation
+            StartCompilationTracking();
+                
+            if (EditorApplication.isCompiling == false)
+            {
+                McpLogger.LogInfo($"Recompiling all scripts in the Unity project (logsLimit: {logsLimit})");
+                CompilationPipeline.RequestScriptCompilation();
             }
         }
 
+        /// <summary>
+        /// Subscribe to compilation events, reset tracked state
+        /// </summary>
+        private void StartCompilationTracking()
+        {
+            _compilationLogs.Clear();
+            _processedAssemblies = 0;
+            CompilationPipeline.assemblyCompilationFinished += OnAssemblyCompilationFinished;
+            CompilationPipeline.compilationFinished += OnCompilationFinished;
+        }
+        
+        /// <summary>
+        /// Unsubscribe from compilation events
+        /// </summary>
+        private void StopCompilationTracking()
+        {
+            CompilationPipeline.assemblyCompilationFinished -= OnAssemblyCompilationFinished;
+            CompilationPipeline.compilationFinished -= OnCompilationFinished;
+        }
+
+        /// <summary>
+        /// Record compilation logs for every single assembly
+        /// </summary>
+        /// <param name="assemblyPath"></param>
+        /// <param name="messages"></param>
         private void OnAssemblyCompilationFinished(string assemblyPath, CompilerMessage[] messages)
         {
             _processedAssemblies++;
             _compilationLogs.AddRange(messages);
         }
 
+        /// <summary>
+        /// Complete all pending requests and stop tracking
+        /// </summary>
+        /// <param name="_"></param>
         private void OnCompilationFinished(object _)
         {
             McpLogger.LogInfo($"Recompilation completed. Processed {_processedAssemblies} assemblies with {_compilationLogs.Count} compiler messages");
 
-            CompilationPipeline.compilationFinished -= OnCompilationFinished;
-            CompilationPipeline.assemblyCompilationFinished -= OnAssemblyCompilationFinished;
-
-            try
+            // Separate errors, warnings, and other messages
+            List<CompilerMessage> errors = _compilationLogs.Where(m => m.type == CompilerMessageType.Error).ToList();
+            List<CompilerMessage> warnings = _compilationLogs.Where(m => m.type == CompilerMessageType.Warning).ToList();
+            List<CompilerMessage> others = _compilationLogs.Where(m => m.type != CompilerMessageType.Error && m.type != CompilerMessageType.Warning).ToList();
+            
+            // Stop tracking before completing requests
+            StopCompilationTracking();
+            
+            // Complete all requests received before compilation end, the next received request will start a new compilation
+            List<CompilationRequest> requestsToComplete = new List<CompilationRequest>();
+            
+            lock (_pendingRequests)
             {
-                // Format logs as JSON array similar to ConsoleLogsService
-                JArray logsArray = new JArray();
-                
-                // Separate errors, warnings, and other messages
-                List<CompilerMessage> errors = _compilationLogs.Where(m => m.type == CompilerMessageType.Error).ToList();
-                List<CompilerMessage> warnings = _compilationLogs.Where(m => m.type == CompilerMessageType.Warning).ToList();
-                List<CompilerMessage> others = _compilationLogs.Where(m => m.type != CompilerMessageType.Error && m.type != CompilerMessageType.Warning).ToList();
+                requestsToComplete.AddRange(_pendingRequests);
+                _pendingRequests.Clear();
+            }
 
-                int errorCount = errors.Count;
-                int warningCount = warnings.Count;
+            foreach (var request in requestsToComplete)
+            {
+                CompleteRequest(request, errors, warnings, others);
+            }
+        }
+
+        /// <summary>
+        /// Process a completed compilation request
+        /// </summary>
+        private static void CompleteRequest(CompilationRequest request, List<CompilerMessage> errors, List<CompilerMessage> warnings, List<CompilerMessage> others)
+        {
+            try {
+                JArray logsArray = new JArray();
 
                 // Sort logs and apply logsLimit - prioritize errors if logsLimit is restrictive
                 IEnumerable<CompilerMessage> sortedLogs;
-                if (!_returnWithLogs || _logsLimit <= 0)
+                if (!request.ReturnWithLogs || request.LogsLimit <= 0)
                 {
                     sortedLogs = Enumerable.Empty<CompilerMessage>();
                 }
-                else
-                {
+                else {
                     // Always include all errors, then warnings, then other messages up to the logsLimit
                     var selectedLogs = errors.ToList();
-                    var remainingSlots = _logsLimit - selectedLogs.Count;
+                    var remainingSlots = request.LogsLimit - selectedLogs.Count;
 
                     if (remainingSlots > 0)
                     {
                         selectedLogs.AddRange(warnings.Take(remainingSlots));
-                        remainingSlots = _logsLimit - selectedLogs.Count;
+                        remainingSlots = request.LogsLimit - selectedLogs.Count;
                     }
 
                     if (remainingSlots > 0)
@@ -106,7 +171,7 @@ namespace McpUnity.Tools {
 
                 foreach (var message in sortedLogs)
                 {
-                    var logObject = new JObject
+                    var logObject = new JObject 
                     {
                         ["message"] = message.message,
                         ["type"] = message.type.ToString(),
@@ -124,14 +189,14 @@ namespace McpUnity.Tools {
                     logsArray.Add(logObject);
                 }
 
-                bool hasErrors = errorCount > 0;
+                bool hasErrors = errors.Count > 0;
                 string summaryMessage = hasErrors
-                    ? $"Recompilation completed with {errorCount} error(s) and {warningCount} warning(s)"
-                    : $"Successfully recompiled all scripts with {warningCount} warning(s)";
-                
-                summaryMessage += $" (returnWithLogs: {_returnWithLogs}, logsLimit: {_logsLimit})";
+                                            ? $"Recompilation completed with {errors.Count} error(s) and {warnings.Count} warning(s)"
+                                            : $"Successfully recompiled all scripts with {warnings.Count} warning(s)";
 
-                var response = new JObject
+                summaryMessage += $" (returnWithLogs: {request.ReturnWithLogs}, logsLimit: {request.LogsLimit})";
+
+                var response = new JObject 
                 {
                     ["success"] = true,
                     ["type"] = "text",
@@ -139,13 +204,13 @@ namespace McpUnity.Tools {
                     ["logs"] = logsArray
                 };
 
-                McpLogger.LogInfo($"Setting recompilation result: success={!hasErrors}, errors={errorCount}, warnings={warningCount}");
-                _completionSource.SetResult(response);
-            }
-            catch (Exception ex)
+                McpLogger.LogInfo($"Setting recompilation result: success={!hasErrors}, errors={errors.Count}, warnings={warnings.Count}");
+                request.CompletionSource.SetResult(response);
+            } 
+            catch (Exception ex) 
             {
                 McpLogger.LogError($"Error creating recompilation response: {ex.Message}\n{ex.StackTrace}");
-                _completionSource.SetResult(McpUnitySocketHandler.CreateErrorResponse(
+                request.CompletionSource.SetResult(McpUnitySocketHandler.CreateErrorResponse(
                     $"Error creating recompilation response: {ex.Message}",
                     "response_creation_error"
                 ));

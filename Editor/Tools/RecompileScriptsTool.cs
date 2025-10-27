@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using McpUnity.Unity;
 using McpUnity.Utils;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
@@ -15,7 +14,8 @@ namespace McpUnity.Tools {
     /// </summary>
     public class RecompileScriptsTool : McpToolBase
     {
-        private class CompilationRequest {
+        private class CompilationRequest 
+        {
             public readonly bool ReturnWithLogs;
             public readonly int LogsLimit;
             public readonly TaskCompletionSource<JObject> CompletionSource;
@@ -25,6 +25,22 @@ namespace McpUnity.Tools {
                 ReturnWithLogs = returnWithLogs;
                 LogsLimit = logsLimit;
                 CompletionSource = completionSource;
+            }
+        }
+        
+        private class CompilationResult 
+        {
+            public readonly List<CompilerMessage> SortedLogs;
+            public readonly int WarningsCount;
+            public readonly int ErrorsCount;
+            
+            public bool HasErrors => ErrorsCount > 0;
+            
+            public CompilationResult(List<CompilerMessage> sortedLogs, int warningsCount, int errorsCount) 
+            {
+                SortedLogs = sortedLogs;
+                WarningsCount = warningsCount;
+                ErrorsCount = errorsCount;
             }
         }
         
@@ -69,7 +85,7 @@ namespace McpUnity.Tools {
                 
             if (EditorApplication.isCompiling == false)
             {
-                McpLogger.LogInfo($"Recompiling all scripts in the Unity project (logsLimit: {logsLimit})");
+                McpLogger.LogInfo("Recompiling all scripts in the Unity project");
                 CompilationPipeline.RequestScriptCompilation();
             }
         }
@@ -97,8 +113,6 @@ namespace McpUnity.Tools {
         /// <summary>
         /// Record compilation logs for every single assembly
         /// </summary>
-        /// <param name="assemblyPath"></param>
-        /// <param name="messages"></param>
         private void OnAssemblyCompilationFinished(string assemblyPath, CompilerMessage[] messages)
         {
             _processedAssemblies++;
@@ -106,17 +120,17 @@ namespace McpUnity.Tools {
         }
 
         /// <summary>
-        /// Complete all pending requests and stop tracking
+        /// Stop tracking and complete all pending requests
         /// </summary>
-        /// <param name="_"></param>
         private void OnCompilationFinished(object _)
         {
             McpLogger.LogInfo($"Recompilation completed. Processed {_processedAssemblies} assemblies with {_compilationLogs.Count} compiler messages");
 
-            // Separate errors, warnings, and other messages
-            List<CompilerMessage> errors = _compilationLogs.Where(m => m.type == CompilerMessageType.Error).ToList();
-            List<CompilerMessage> warnings = _compilationLogs.Where(m => m.type == CompilerMessageType.Warning).ToList();
-            List<CompilerMessage> others = _compilationLogs.Where(m => m.type != CompilerMessageType.Error && m.type != CompilerMessageType.Warning).ToList();
+            // Sort logs by type: first errors, then warnings and info
+            List<CompilerMessage> sortedLogs = _compilationLogs.OrderBy(x => x.type).ToList();
+            int errorsCount = _compilationLogs.Count(l => l.type == CompilerMessageType.Error);
+            int warningsCount = _compilationLogs.Count(l => l.type == CompilerMessageType.Warning);
+            CompilationResult result = new CompilationResult(sortedLogs, warningsCount, errorsCount);
             
             // Stop tracking before completing requests
             StopCompilationTracking();
@@ -132,89 +146,52 @@ namespace McpUnity.Tools {
 
             foreach (var request in requestsToComplete)
             {
-                CompleteRequest(request, errors, warnings, others);
+                CompleteRequest(request, result);
             }
         }
 
         /// <summary>
         /// Process a completed compilation request
         /// </summary>
-        private static void CompleteRequest(CompilationRequest request, List<CompilerMessage> errors, List<CompilerMessage> warnings, List<CompilerMessage> others)
+        private static void CompleteRequest(CompilationRequest request, CompilationResult result)
         {
-            try {
-                JArray logsArray = new JArray();
+            JArray logsArray = new JArray();
+            IEnumerable<CompilerMessage> logsToReturn = request.ReturnWithLogs ? result.SortedLogs.Take(request.LogsLimit) : Enumerable.Empty<CompilerMessage>();
 
-                // Sort logs and apply logsLimit - prioritize errors if logsLimit is restrictive
-                IEnumerable<CompilerMessage> sortedLogs;
-                if (!request.ReturnWithLogs || request.LogsLimit <= 0)
+            foreach (var message in logsToReturn)
+            {
+                var logObject = new JObject 
                 {
-                    sortedLogs = Enumerable.Empty<CompilerMessage>();
-                }
-                else {
-                    // Always include all errors, then warnings, then other messages up to the logsLimit
-                    var selectedLogs = errors.ToList();
-                    var remainingSlots = request.LogsLimit - selectedLogs.Count;
-
-                    if (remainingSlots > 0)
-                    {
-                        selectedLogs.AddRange(warnings.Take(remainingSlots));
-                        remainingSlots = request.LogsLimit - selectedLogs.Count;
-                    }
-
-                    if (remainingSlots > 0)
-                    {
-                        selectedLogs.AddRange(others.Take(remainingSlots));
-                    }
-
-                    sortedLogs = selectedLogs;
-                }
-
-                foreach (var message in sortedLogs)
-                {
-                    var logObject = new JObject 
-                    {
-                        ["message"] = message.message,
-                        ["type"] = message.type.ToString(),
-                        ["timestamp"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
-                    };
-
-                    // Add file information if available
-                    if (!string.IsNullOrEmpty(message.file))
-                    {
-                        logObject["file"] = message.file;
-                        logObject["line"] = message.line;
-                        logObject["column"] = message.column;
-                    }
-
-                    logsArray.Add(logObject);
-                }
-
-                bool hasErrors = errors.Count > 0;
-                string summaryMessage = hasErrors
-                                            ? $"Recompilation completed with {errors.Count} error(s) and {warnings.Count} warning(s)"
-                                            : $"Successfully recompiled all scripts with {warnings.Count} warning(s)";
-
-                summaryMessage += $" (returnWithLogs: {request.ReturnWithLogs}, logsLimit: {request.LogsLimit})";
-
-                var response = new JObject 
-                {
-                    ["success"] = true,
-                    ["type"] = "text",
-                    ["message"] = summaryMessage,
-                    ["logs"] = logsArray
+                    ["message"] = message.message,
+                    ["type"] = message.type.ToString()
                 };
 
-                McpLogger.LogInfo($"Setting recompilation result: success={!hasErrors}, errors={errors.Count}, warnings={warnings.Count}");
-                request.CompletionSource.SetResult(response);
-            } 
-            catch (Exception ex) 
-            {
-                McpLogger.LogError($"Error creating recompilation response: {ex.Message}\n{ex.StackTrace}");
-                request.CompletionSource.SetResult(McpUnitySocketHandler.CreateErrorResponse(
-                    $"Error creating recompilation response: {ex.Message}",
-                    "response_creation_error"
-                ));
+                // Add file information if available
+                if (!string.IsNullOrEmpty(message.file))
+                {
+                    logObject["file"] = message.file;
+                    logObject["line"] = message.line;
+                    logObject["column"] = message.column;
+                }
+
+                logsArray.Add(logObject);
             }
+
+            string summaryMessage = result.HasErrors
+                                        ? $"Recompilation completed with {result.ErrorsCount} error(s) and {result.WarningsCount} warning(s)"
+                                        : $"Successfully recompiled all scripts with {result.WarningsCount} warning(s)";
+
+            summaryMessage += $" (returnWithLogs: {request.ReturnWithLogs}, logsLimit: {request.LogsLimit})";
+
+            var response = new JObject 
+            {
+                ["success"] = true,
+                ["type"] = "text",
+                ["message"] = summaryMessage,
+                ["logs"] = logsArray
+            };
+
+            request.CompletionSource.SetResult(response);
         }
 
         /// <summary>

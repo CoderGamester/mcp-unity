@@ -386,13 +386,23 @@ namespace McpUnity.Utils
             }
             else // macOS / Linux
             {
-                // Fallback to /bin/bash to find 'npm' in PATH
-                startInfo.FileName = "/bin/bash";
-                startInfo.Arguments = $"-c \"npm {arguments}\"";
+                string userShell = Environment.GetEnvironmentVariable("SHELL") ?? "/bin/bash";
+                string shellName = Path.GetFileName(userShell);
+                
+                // Source rc file to init version managers (nvm, fnm, volta) - GUI apps don't inherit shell env
+                string rcFile = shellName == "zsh" ? ".zshrc" : ".bashrc";
+                
+                startInfo.FileName = userShell;
+                startInfo.Arguments = $"-c \"source ~/{rcFile} 2>/dev/null || true; npm {arguments}\"";
 
-                // Ensure PATH includes common npm locations and current PATH
+                // Fallback PATH for common npm locations
                 string currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-                string extraPaths = "/usr/local/bin:/opt/homebrew/bin";
+                string homeDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+                string extraPaths = string.Join(":",
+                    "/usr/local/bin",
+                    "/opt/homebrew/bin",
+                    $"{homeDir}/.nvm/versions/node/default/bin"  // nvm default alias
+                );
                 startInfo.EnvironmentVariables["PATH"] = $"{extraPaths}:{currentPath}";
             }
 

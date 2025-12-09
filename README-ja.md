@@ -110,7 +110,7 @@ MCP Unityは、Unityの`Library/PackedCache`フォルダーをワークスペー
   > **例:** "プロジェクトで利用可能なすべてのテストをリスト"
 
 ## 要件
-- Unity 2022.3以降 - [サーバーをインストール](#install-server)するため
+- Unity 6以降 - [サーバーをインストール](#install-server)するため
 - Node.js 18以降 - [サーバーを起動](#start-server)するため
 - npm 9以降 - [サーバーをデバッグ](#debug-server)するため
 

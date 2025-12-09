@@ -114,7 +114,7 @@ The following tools are available for manipulating and querying Unity scenes and
   > **Example prompt:** "List all available tests in my Unity project"
 
 ## Requirements
-- Unity 2022.3 or later - to [install the server](#install-server)
+- Unity 6 or later - to [install the server](#install-server)
 - Node.js 18 or later - to [start the server](#start-server)
 - npm 9 or later - to [debug the server](#debug-server)
 

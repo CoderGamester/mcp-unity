@@ -10,7 +10,6 @@
 | [🇺🇸英文](README.md) | [🇨🇳简体中文](README_zh-CN.md) | [🇯🇵日本語](README-ja.md) |
 |----------------------|---------------------------------|----------------------|
 
-
 ```                                                                        
                               ,/(/.   *(/,                                  
                           */(((((/.   *((((((*.                             
@@ -43,10 +42,6 @@
 ```       
 
 MCP Unity 是 Model Context Protocol 在 Unity 编辑器中的实现，允许 AI 助手与您的 Unity 项目交互。这个包提供了 Unity 和实现 MCP 协议的 Node.js 服务器之间的桥梁，使 Claude、Windsurf 和 Cursor 等 AI 代理能够在 Unity 编辑器中执行操作。
-
-<a href="https://glama.ai/mcp/servers/@CoderGamester/mcp-unity">
-  <img width="400" height="200" src="https://glama.ai/mcp/servers/@CoderGamester/mcp-unity/badge" alt="Unity MCP server" />
-</a>
 
 ## 功能
 

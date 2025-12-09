@@ -52,7 +52,7 @@ namespace McpUnity.Tools
                     // Apply field values if provided and component exists
                     ApplyFieldValues(fieldValues, component);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     return McpUnitySocketHandler.CreateErrorResponse(
                         $"Failed to add component '{componentName}' to GameObject", 

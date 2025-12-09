@@ -267,6 +267,10 @@ namespace McpUnity.Unity
             // Register RecompileScriptsTool
             RecompileScriptsTool recompileScriptsTool = new RecompileScriptsTool();
             _tools.Add(recompileScriptsTool.Name, recompileScriptsTool);
+            
+            // Register GetGameObjectTool
+            GetGameObjectTool getGameObjectTool = new GetGameObjectTool();
+            _tools.Add(getGameObjectTool.Name, getGameObjectTool);
         }
         
         /// <summary>

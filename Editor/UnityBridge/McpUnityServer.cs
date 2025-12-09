@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using UnityEngine;
 using UnityEditor;
 using McpUnity.Tools;
 using McpUnity.Resources;
@@ -9,8 +8,8 @@ using McpUnity.Services;
 using McpUnity.Utils;
 using WebSocketSharp.Server;
 using System.IO;
-using System.Diagnostics;
 using System.Net.Sockets;
+using UnityEditor.Callbacks;
 
 namespace McpUnity.Unity
 {
@@ -30,16 +29,15 @@ namespace McpUnity.Unity
         private CancellationTokenSource _cts;
         private TestRunnerService _testRunnerService;
         private ConsoleLogsService _consoleLogsService;
-
+        
         /// <summary>
-        /// Static constructor that gets called when Unity loads due to InitializeOnLoad attribute
+        /// Called after every domain reload
         /// </summary>
-        static McpUnityServer()
+        [DidReloadScripts]
+        private static void AfterReload()
         {
-            EditorApplication.delayCall += () => {
-                // Ensure Instance is created and hooks are set up after initial domain load
-                var currentInstance = Instance;
-            };
+            // Ensure Instance is created and hooks are set up after initial domain load
+            var currentInstance = Instance;
         }
         
         /// <summary>
@@ -265,6 +263,10 @@ namespace McpUnity.Unity
             // Register LoadSceneTool
             LoadSceneTool loadSceneTool = new LoadSceneTool();
             _tools.Add(loadSceneTool.Name, loadSceneTool);
+            
+            // Register RecompileScriptsTool
+            RecompileScriptsTool recompileScriptsTool = new RecompileScriptsTool();
+            _tools.Add(recompileScriptsTool.Name, recompileScriptsTool);
         }
         
         /// <summary>

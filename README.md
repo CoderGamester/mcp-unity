@@ -90,6 +90,9 @@ The following tools are available for manipulating and querying Unity scenes and
 - `create_prefab`: Creates a prefab with optional MonoBehaviour script and serialized field values
   > **Example prompt:** "Create a prefab named 'Player' from the 'PlayerController' script"
 
+- `recompile_scripts`: Recompiles all scripts in the Unity project
+  > **Example prompt:** "Recompile scripts in my Unity project"
+
 ### MCP Server Resources
 
 - `unity://menu-items`: Retrieves a list of all available menu items in the Unity Editor to facilitate `execute_menu_item` tool

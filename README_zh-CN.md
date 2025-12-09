@@ -87,6 +87,9 @@ MCP Unity 通过将 Unity `Library/PackedCache` 文件夹添加到您的工作�
 - `create_prefab`: 创建预制体，并可选择添加 MonoBehaviour 脚本和设置序列化字段值
   > **示例提示:** "从 'PlayerController' 脚本创建一个名为 'Player' 的预制体"
 
+- `recompile_scripts`: 重新编译 Unity 项目中的所有脚本
+  > **示例提示:** "重新编译我 Unity 项目中的所有脚本"
+
 ### MCP 服务器资源
 
 - `unity://menu-items`: 获取 Unity 编辑器中所有可用的菜单项列表，以方便 `execute_menu_item` 工具

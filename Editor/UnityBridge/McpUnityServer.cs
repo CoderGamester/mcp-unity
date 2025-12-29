@@ -198,6 +198,13 @@ namespace McpUnity.Unity
                 return;
             }
 
+            // Validate server path and warn about potential issues (spaces, special characters)
+            if (!McpUtils.ValidateServerPath(serverPath))
+            {
+                McpLogger.LogError("Server path validation failed. See previous errors for details.");
+                return;
+            }
+
             string nodeModulesPath = Path.Combine(serverPath, "node_modules");
             if (!Directory.Exists(nodeModulesPath))
             {

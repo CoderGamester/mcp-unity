@@ -1,7 +1,7 @@
 # MCP Unity - AI Agent Guide
 
 ## 1. Project Overview
-**MCP Unity** bridges AI assistants (Cursor, Claude, Windsurf) to the Unity Editor via the Model Context Protocol (MCP). It allows agents to inspect scenes, manipulate GameObjects, run tests, and manage packages directly within Unity.
+**MCP Unity** bridges AI assistants (Cursor, Claude, Windsurf, Google Antigravity) to the Unity Editor via the Model Context Protocol (MCP). It allows agents to inspect scenes, manipulate GameObjects, run tests, and manage packages directly within Unity.
 
 ## 2. Architecture
 - **Dual Architecture**:

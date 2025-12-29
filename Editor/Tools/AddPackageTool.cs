@@ -220,8 +220,9 @@ namespace McpUnity.Tools
                 return null;
             }
             
-            // Format as file URL
-            string packageUrl = $"file:{path}";
+            // Format as file URL with proper encoding for paths containing spaces
+            string encodedPath = McpUtils.EncodePathForFileUrl(path);
+            string packageUrl = $"file:{encodedPath}";
             
             McpLogger.LogInfo($"Adding package from disk: {packageUrl}");
             

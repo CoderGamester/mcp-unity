@@ -41,13 +41,13 @@
      ╚═╝     ╚═╝ ╚═════╝╚═╝              ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝      ╚═╝   
 ```       
 
-MCP Unity is an implementation of the Model Context Protocol for Unity Editor, allowing AI assistants to interact with your Unity projects. This package provides a bridge between Unity and a Node.js server that implements the MCP protocol, enabling AI agents like Claude, Windsurf, and Cursor to execute operations within the Unity Editor.
+MCP Unity is an implementation of the Model Context Protocol for Unity Editor, allowing AI assistants to interact with your Unity projects. This package provides a bridge between Unity and a Node.js server that implements the MCP protocol, enabling AI agents like Claude, Windsurf, Cursor, and Google Antigravity to execute operations within the Unity Editor.
 
 ## Features
 
 ### IDE Integration - Package Cache Access
 
-MCP Unity provides automatic integration with VSCode-like IDEs (Visual Studio Code, Cursor, Windsurf) by adding the Unity `Library/PackedCache` folder to your workspace. This feature:
+MCP Unity provides automatic integration with VSCode-like IDEs (Visual Studio Code, Cursor, Windsurf, Google Antigravity) by adding the Unity `Library/PackedCache` folder to your workspace. This feature:
 
 - Improves code intelligence for Unity packages
 - Enables better autocompletion and type information for Unity packages
@@ -216,7 +216,7 @@ Open the MCP configuration file of your AI client (e.g. claude_desktop_config.js
 1. Open the Unity Editor
 2. Navigate to Tools > MCP Unity > Server Window
 3. Click "Start Server" to start the WebSocket server
-4. Open Claude Desktop or your AI Coding IDE (e.g. Cursor IDE, Windsurf IDE, etc.) and start executing Unity tools
+4. Open Claude Desktop or your AI Coding IDE (e.g. Cursor IDE, Windsurf IDE, Google Antigravity, etc.) and start executing Unity tools
    
 ![connect](https://github.com/user-attachments/assets/2e266a8b-8ba3-4902-b585-b220b11ab9a2)
 
@@ -389,6 +389,7 @@ MCP Unity is designed to work with any AI assistant or development environment t
 -  Cursor
 -  GitHub Copilot
 -  Claude Desktop
+-  Google Antigravity
 
 </details>
 

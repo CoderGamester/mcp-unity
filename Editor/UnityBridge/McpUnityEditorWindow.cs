@@ -266,6 +266,10 @@ namespace McpUnity.Unity
 
             ShowConfigButton("GitHub Copilot", McpUtils.AddToGitHubCopilotConfig);
 
+            EditorGUILayout.Space();
+
+            ShowConfigButton("Google Antigravity", McpUtils.AddToAntigravityConfig);
+
             EditorGUILayout.Separator();
             EditorGUILayout.Separator();
 

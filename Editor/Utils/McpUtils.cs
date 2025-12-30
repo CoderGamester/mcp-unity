@@ -161,6 +161,15 @@ namespace McpUnity.Utils
         }
 
         /// <summary>
+        /// Adds the MCP configuration to the Google Antigravity config file
+        /// </summary>
+        public static bool AddToAntigravityConfig(bool useTabsIndentation)
+        {
+            string configFilePath = GetAntigravityConfigPath();
+            return AddToConfigFile(configFilePath, useTabsIndentation, "Google Antigravity");
+        }
+
+        /// <summary>
         /// Adds the MCP configuration to the GitHub Copilot config file
         /// </summary>
         public static bool AddToGitHubCopilotConfig(bool useTabsIndentation)
@@ -337,6 +346,37 @@ namespace McpUnity.Utils
             }
 
             return Path.Combine(homeDir, ".claude.json");
+        }
+
+        /// <summary>
+        /// Gets the path to the Google Antigravity MCP config file based on the current OS
+        /// </summary>
+        /// <returns>The path to the Google Antigravity MCP config file</returns>
+        private static string GetAntigravityConfigPath()
+        {
+            // Base path depends on the OS
+            string basePath;
+
+            if (Application.platform == RuntimePlatform.WindowsEditor)
+            {
+                // Windows: %USERPROFILE%/.gemini/antigravity/mcp_config.json
+                basePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini", "antigravity");
+            }
+            else if (Application.platform == RuntimePlatform.OSXEditor)
+            {
+                // macOS: ~/Library/Application Support/.gemini/antigravity/mcp_config.json
+                string homeDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+                basePath = Path.Combine(homeDir, "Library", "Application Support", ".gemini", "antigravity");
+            }
+            else
+            {
+                // Unsupported platform
+                Debug.LogError("Unsupported platform for Google Antigravity MCP config");
+                return null;
+            }
+
+            // Return the path to the mcp_config.json file
+            return Path.Combine(basePath, "mcp_config.json");
         }
 
         /// <summary>

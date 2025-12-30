@@ -15,7 +15,9 @@
     "build": "tsc",
     "start": "node build/index.js",
     "watch": "tsc --watch",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest --forceExit",
+    "test:watch": "NODE_OPTIONS='--experimental-vm-modules' jest --watch"
   },
   "keywords": [
     "mcp",
@@ -29,10 +31,13 @@
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.13.10",
     "@types/uuid": "^10.0.0",
     "@types/winreg": "^1.2.36",
     "@types/ws": "^8.18.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.8.2"
   },
   "dependencies": {

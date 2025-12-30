@@ -18,6 +18,7 @@ import { registerDeleteSceneTool } from './tools/deleteSceneTool.js';
 import { registerLoadSceneTool } from './tools/loadSceneTool.js';
 import { registerRecompileScriptsTool } from './tools/recompileScriptsTool.js';
 import { registerGetGameObjectTool } from './tools/getGameObjectTool.js';
+import { registerTransformTools } from './tools/transformTools.js';
 import { registerGetMenuItemsResource } from './resources/getMenuItemResource.js';
 import { registerGetConsoleLogsResource } from './resources/getConsoleLogsResource.js';
 import { registerGetHierarchyResource } from './resources/getScenesHierarchyResource.js';
@@ -67,6 +68,7 @@ registerDeleteSceneTool(server, mcpUnity, toolLogger);
 registerLoadSceneTool(server, mcpUnity, toolLogger);
 registerRecompileScriptsTool(server, mcpUnity, toolLogger);
 registerGetGameObjectTool(server, mcpUnity, toolLogger);
+registerTransformTools(server, mcpUnity, toolLogger);
 
 // Register all resources into the MCP server
 registerGetTestsResource(server, mcpUnity, resourceLogger);

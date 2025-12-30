@@ -278,6 +278,19 @@ namespace McpUnity.Unity
             // Register GetGameObjectTool
             GetGameObjectTool getGameObjectTool = new GetGameObjectTool();
             _tools.Add(getGameObjectTool.Name, getGameObjectTool);
+
+            // Register Transform Tools
+            MoveGameObjectTool moveGameObjectTool = new MoveGameObjectTool();
+            _tools.Add(moveGameObjectTool.Name, moveGameObjectTool);
+
+            RotateGameObjectTool rotateGameObjectTool = new RotateGameObjectTool();
+            _tools.Add(rotateGameObjectTool.Name, rotateGameObjectTool);
+
+            ScaleGameObjectTool scaleGameObjectTool = new ScaleGameObjectTool();
+            _tools.Add(scaleGameObjectTool.Name, scaleGameObjectTool);
+
+            SetTransformTool setTransformTool = new SetTransformTool();
+            _tools.Add(setTransformTool.Name, setTransformTool);
         }
         
         /// <summary>

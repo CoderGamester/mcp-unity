@@ -104,22 +104,48 @@ async function startServer() {
   }
 }
 
+// Graceful shutdown handler
+let isShuttingDown = false;
+async function shutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  try {
+    serverLogger.info('Shutting down...');
+    await mcpUnity.stop();
+    await server.close();
+  } catch (error) {
+    // Ignore errors during shutdown
+  }
+  process.exit(0);
+}
+
 // Start the server
 startServer();
 
-// Handle shutdown
-process.on('SIGINT', async () => {
-  serverLogger.info('Shutting down...');
-  await mcpUnity.stop();
-  process.exit(0);
-});
+// Handle shutdown signals
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+process.on('SIGHUP', shutdown);
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+// Handle stdin close (when MCP client disconnects)
+process.stdin.on('close', shutdown);
+process.stdin.on('end', shutdown);
+process.stdin.on('error', shutdown);
+
+// Handle uncaught exceptions - exit cleanly if it's just a closed pipe
+process.on('uncaughtException', (error: NodeJS.ErrnoException) => {
+  // EPIPE/EOF errors are expected when the MCP client disconnects
+  if (error.code === 'EPIPE' || error.code === 'EOF' || error.code === 'ERR_USE_AFTER_CLOSE') {
+    shutdown();
+    return;
+  }
   serverLogger.error('Uncaught exception', error);
+  process.exit(1);
 });
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason) => {
   serverLogger.error('Unhandled rejection', reason);
+  process.exit(1);
 });

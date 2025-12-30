@@ -1,7 +1,9 @@
 using System.IO;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using McpUnity.Utils;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace McpUnity.Tests
 {
@@ -70,6 +72,7 @@ namespace McpUnity.Tests
         {
             // Arrange
             string nonExistentPath = Path.Combine(Path.GetTempPath(), "NonExistentMcpUnityPath12345");
+            LogAssert.Expect(LogType.Error, new Regex(@"\[MCP Unity\] Server path does not exist:"));
 
             // Act
             bool result = McpUtils.ValidateServerPath(nonExistentPath);
@@ -84,6 +87,7 @@ namespace McpUnity.Tests
             // Arrange
             Directory.CreateDirectory(_tempDir);
             // Don't create package.json
+            LogAssert.Expect(LogType.Error, new Regex(@"\[MCP Unity\] package\.json not found in server path:"));
 
             // Act
             bool result = McpUtils.ValidateServerPath(_tempDir);
@@ -95,6 +99,9 @@ namespace McpUnity.Tests
         [Test]
         public void ValidateServerPath_WithNullPath_ReturnsFalse()
         {
+            // Arrange
+            LogAssert.Expect(LogType.Error, "[MCP Unity] Server path is null or empty. Cannot validate.");
+
             // Act
             bool result = McpUtils.ValidateServerPath(null);
 
@@ -105,6 +112,9 @@ namespace McpUnity.Tests
         [Test]
         public void ValidateServerPath_WithEmptyPath_ReturnsFalse()
         {
+            // Arrange
+            LogAssert.Expect(LogType.Error, "[MCP Unity] Server path is null or empty. Cannot validate.");
+
             // Act
             bool result = McpUtils.ValidateServerPath("");
 

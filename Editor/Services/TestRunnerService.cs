@@ -197,7 +197,7 @@ namespace McpUnity.Services
         {
             var arr = new JArray(results
                 .Where(r => !r.HasChildren)
-                .Where(r => !_returnOnlyFailures || r.ResultState == "Failed")
+                .Where(r => !_returnOnlyFailures || r.ResultState.StartsWith("Failed"))
                 .Select(r => new JObject {
                     ["name"]      = r.Name,
                     ["fullName"]  = r.FullName,

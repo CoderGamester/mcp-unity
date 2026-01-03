@@ -125,6 +125,50 @@ namespace McpUnity.Utils
         }
 
         /// <summary>
+        /// Encodes a file path for use in file:// URLs by replacing spaces with %20.
+        /// </summary>
+        /// <param name="path">The path to encode.</param>
+        /// <returns>The encoded path suitable for file:// URLs.</returns>
+        public static string EncodePathForFileUrl(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return path;
+
+            return path.Replace(" ", "%20");
+        }
+
+        /// <summary>
+        /// Validates the server path and returns true if valid.
+        /// </summary>
+        /// <param name="serverPath">The server path to validate.</param>
+        /// <returns>True if path is valid and usable, false if path has critical issues.</returns>
+        public static bool ValidateServerPath(string serverPath)
+        {
+            if (string.IsNullOrEmpty(serverPath))
+            {
+                Debug.LogError("[MCP Unity] Server path is null or empty. Cannot validate.");
+                return false;
+            }
+
+            // Verify the path exists
+            if (!Directory.Exists(serverPath))
+            {
+                Debug.LogError($"[MCP Unity] Server path does not exist: {serverPath}");
+                return false;
+            }
+
+            // Verify required files exist
+            string packageJsonPath = Path.Combine(serverPath, "package.json");
+            if (!File.Exists(packageJsonPath))
+            {
+                Debug.LogError($"[MCP Unity] package.json not found in server path: {serverPath}");
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Adds the MCP configuration to the Windsurf MCP config file
         /// </summary>
         public static bool AddToWindsurfIdeConfig(bool useTabsIndentation)

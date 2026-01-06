@@ -115,17 +115,14 @@ The following tools are available for manipulating and querying Unity scenes and
 - Node.js 18 or later - to [start the server](#start-server)
 - npm 9 or later - to [debug the server](#debug-server)
 
-> [!IMPORTANT]
-> **Project Path Cannot Contain Spaces**
+> [!NOTE]
+> **Project Paths with Spaces**
 >
-> It is crucial that the file path to your Unity project **does not contain any spaces**.
-> If your project path includes spaces, the MCP Client (e.g., Cursor, Claude, Windsurf) will fail to connect to the MCP Unity server.
+> MCP Unity supports project paths containing spaces. However, if you experience connection issues, try moving your project to a path without spaces as a troubleshooting step.
 >
 > **Examples:**
-> -   ✅ **Works:** `C:\Users\YourUser\Documents\UnityProjects\MyAwesomeGame`
-> -   ❌ **Fails:** `C:\Users\Your User\Documents\Unity Projects\My Awesome Game`
->
-> Please ensure your project is located in a path without spaces before proceeding with the installation.
+> -   ✅ **Recommended:** `C:\Users\YourUser\Documents\UnityProjects\MyAwesomeGame`
+> -   ✅ **Supported:** `C:\Users\Your User\Documents\Unity Projects\My Awesome Game`
 
 ## <a name="install-server"></a>Installation
 
@@ -485,6 +482,27 @@ npm i -g wscat
 wscat -c ws://localhost:8090/McpUnity
 # Or using the Windows host IP
 wscat -c ws://$UNITY_HOST:8090/McpUnity
+```
+
+## Running Tests
+
+### C# Tests (Unity)
+Run tests using Unity's Test Runner:
+1. Open Unity Editor
+2. Navigate to Window > General > Test Runner
+3. Select "EditMode" tab
+4. Click "Run All" to execute all tests
+
+### TypeScript Tests (Server)
+Run tests using Jest:
+```bash
+cd Server~
+npm test
+```
+
+To run tests in watch mode:
+```bash
+npm run test:watch
 ```
 
 ## Support & Feedback

@@ -1,59 +1,127 @@
-# MCP Unity - AI Agent Guide
+## MCP Unity — AI Agent Guide (MCP Package)
 
-## 1. Project Overview
-**MCP Unity** bridges AI assistants (Cursor, Claude, Windsurf, Google Antigravity) to the Unity Editor via the Model Context Protocol (MCP). It allows agents to inspect scenes, manipulate GameObjects, run tests, and manage packages directly within Unity.
+### Purpose (what this repo is)
+**MCP Unity** exposes Unity Editor capabilities to MCP-enabled clients by running:
+- **Unity-side “client” (C# Editor scripts)**: a WebSocket server inside the Unity Editor that executes tools/resources.
+- **Node-side “server” (TypeScript)**: an MCP stdio server that registers MCP tools/resources and forwards requests to Unity over WebSocket.
 
-## 2. Architecture
-- **Dual Architecture**:
-  - **Server (Node.js/TypeScript)**: Runs as the MCP server (stdio), handles protocol messages, and forwards requests to Unity via WebSocket.
-  - **Client (Unity/C#)**: Runs inside Unity Editor, listens for WebSocket commands, executes Editor API calls, and returns results.
-- **Communication**: JSON-RPC over WebSocket (default port 8080).
+### How it works (high-level data flow)
+- **MCP client** ⇄ (stdio / MCP SDK) ⇄ **Node server** (`Server~/src/index.ts`)
+- **Node server** ⇄ (WebSocket JSON-RPC-ish) ⇄ **Unity Editor** (`Editor/UnityBridge/McpUnityServer.cs` + `McpUnitySocketHandler.cs`)
+- **Tool/Resource names must match exactly** across Node and Unity (typically `lower_snake_case`).
 
-## 3. Directory Structure
+### Key defaults & invariants
+- **Unity WebSocket endpoint**: `ws://localhost:8090/McpUnity` by default.
+- **Config file**: `ProjectSettings/McpUnitySettings.json` (written/read by Unity; read opportunistically by Node).
+- **Execution thread**: Tool/resource execution is dispatched via `EditorCoroutineUtility` and runs on the **Unity main thread**. Keep synchronous work short; use async patterns for long work.
+
+### Repo layout (where to change what)
 ```
 /
-├── Editor/                 # Unity C# Editor Code (The "Client")
-│   ├── Tools/              # Tool implementations (McpToolBase)
-│   ├── Resources/          # Resource implementations (McpResourceBase)
-│   ├── UnityBridge/        # WebSocket server & message handling
-│   └── Services/           # Core services (Logs, Tests)
-├── Server~/                # Node.js MCP Server Code (The "Server")
-│   ├── src/tools/          # MCP Tool definitions (mirrors Editor/Tools)
-│   ├── src/resources/      # MCP Resource definitions
-│   └── src/unity/          # WebSocket client logic
-└── docs/                   # Documentation images
-
-## 4. Key Files
-- `McpUnitySocketHandler.cs` — WebSocket message routing
-- `McpUnityServer.cs` — Unity-side server lifecycle
-- `McpUnity.ts` — Node.js client connecting to Unity
-- `index.ts` — MCP server entry, tool/resource registration
+├── Editor/                       # Unity Editor package code (C#)
+│   ├── Tools/                    # Tools (inherit McpToolBase)
+│   ├── Resources/                # Resources (inherit McpResourceBase)
+│   ├── UnityBridge/              # WebSocket server + message routing
+│   ├── Services/                 # Test/log services used by tools/resources
+│   └── Utils/                    # Shared helpers (config, logging, workspace integration)
+├── Server~/                      # Node MCP server (TypeScript, ESM)
+│   ├── src/index.ts              # Registers tools/resources/prompts with MCP SDK
+│   ├── src/tools/                # MCP tool definitions (zod schema + handler)
+│   ├── src/resources/            # MCP resource definitions
+│   └── src/unity/mcpUnity.ts      # WebSocket client that talks to Unity
+└── server.json                   # MCP registry metadata (name/version/package)
 ```
 
-## 5. Coding Standards
-- **Unity**: Unity 6 standards.
-- **C#**: C# 9.0 features allowed.
-- **Namespaces**: Explicit namespaces (e.g., `McpUnity.Tools`). No global `using`.
-- **Async**: Use `IsAsync = true` in tools/resources for main thread operations (Editor API).
+### Quickstart (local dev)
+- **Unity side**
+  - Open the Unity project that has this package installed.
+  - Ensure the server is running (auto-start is controlled by `McpUnitySettings.AutoStartServer`).
+  - Settings persist in `ProjectSettings/McpUnitySettings.json`.
 
-## 6. Development Workflow
-To add a new capability (e.g., "RotateObject"):
+- **Node side (build)**
+  - `cd Server~ && npm run build`
+  - The MCP entrypoint is `Server~/build/index.js` (published as an MCP stdio server).
 
-1.  **Unity (C#)**:
-    - Create `Editor/Tools/RotateObjectTool.cs` inheriting `McpToolBase`.
-    - Implement `Execute` (sync) or `ExecuteAsync` (if touching Editor API).
-    - Register in `McpUnityServer.cs` (if not auto-discovered).
+- **Node side (debug/inspect)**
+  - `cd Server~ && npm run inspector` to use the MCP Inspector.
 
-2.  **Server (TS)**:
-    - Create `Server~/src/tools/rotateObjectTool.ts`.
-    - Define input schema (zod) and tool handler.
-    - Forward request to Unity via `McpUnity.instance.callTool("RotateObject", args)`.
+### Configuration (Unity ↔ Node bridge)
+The Unity settings file is the shared contract:
+- **Path**: `ProjectSettings/McpUnitySettings.json`
+- **Fields**
+  - **Port** (default **8090**): Unity WebSocket server port.
+  - **RequestTimeoutSeconds** (default **10**): Node request timeout (Node reads this if the settings file is discoverable).
+  - **AllowRemoteConnections** (default **false**): Unity binds to `0.0.0.0` when enabled; otherwise `localhost`.
+  - **EnableInfoLogs**: Unity console logging verbosity.
+  - **NpmExecutablePath**: optional npm path for Unity-driven install/build.
 
-3.  **Build**:
-    - Unity compiles automatically.
-    - Server: `cd Server~ && npm run build`.
+Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **its current working directory**. If not found, Node falls back to:
+- **host**: `localhost`
+- **port**: `8090`
+- **timeout**: `10s`
 
-## 7. Update Policy
-- **Update this file** when architecture changes, whenever tools/resources are added/renamed/removed, or when new core patterns are introduced.
-- **Keep concise**: Focus on high-level patterns for AI context.
+**Remote connection note**:
+- If Unity is on another machine, set `AllowRemoteConnections=true` in Unity and set `UNITY_HOST=<unity_machine_ip_or_hostname>` for the Node process.
+
+### Adding a new capability
+
+### Add a tool
+1. **Unity (C#)**
+   - Add `Editor/Tools/<YourTool>Tool.cs` inheriting `McpToolBase`.
+   - Set `Name` to the MCP tool name (recommended: `lower_snake_case`).
+   - Implement:
+     - `Execute(JObject parameters)` for synchronous work, or
+     - set `IsAsync = true` and implement `ExecuteAsync(JObject parameters, TaskCompletionSource<JObject> tcs)` for long-running operations.
+   - Register it in `Editor/UnityBridge/McpUnityServer.cs` (`RegisterTools()`).
+
+2. **Node (TypeScript)**
+   - Add `Server~/src/tools/<yourTool>Tool.ts`.
+   - Register the tool in `Server~/src/index.ts`.
+   - Use a zod schema for params; forward to Unity using the same `method` string:
+     - `mcpUnity.sendRequest({ method: toolName, params: {...} })`
+
+3. **Build**
+   - `cd Server~ && npm run build`
+
+### Add a resource
+1. **Unity (C#)**
+   - Add `Editor/Resources/<YourResource>Resource.cs` inheriting `McpResourceBase`.
+   - Set `Name` (method string) and `Uri` (e.g. `unity://...`).
+   - Implement `Fetch(...)` or `FetchAsync(...)`.
+   - Register in `Editor/UnityBridge/McpUnityServer.cs` (`RegisterResources()`).
+
+2. **Node (TypeScript)**
+   - Add `Server~/src/resources/<yourResource>.ts`, register in `Server~/src/index.ts`.
+   - Forward to Unity via `mcpUnity.sendRequest({ method: resourceName, params: {} })`.
+
+### Logging & debugging
+- **Unity**
+  - Uses `McpUnity.Utils.McpLogger` (info logs gated by `EnableInfoLogs`).
+  - Connection lifecycle is managed in `Editor/UnityBridge/McpUnityServer.cs` (domain reload & playmode transitions stop/restart the server).
+
+- **Node**
+  - Logging is controlled by env vars:
+    - `LOGGING=true` enables console logging.
+    - `LOGGING_FILE=true` writes `log.txt` in the Node process working directory.
+
+### Common pitfalls
+- **Port mismatch**: Unity default is **8090**; update docs/config if you change it.
+- **Name mismatch**: Node `toolName`/`resourceName` must equal Unity `Name` exactly, or Unity responds `unknown_method`.
+- **Long main-thread work**: synchronous `Execute()` blocks the Unity editor; use async patterns for heavy operations.
+- **Remote connections**: Unity must bind `0.0.0.0` (`AllowRemoteConnections=true`) and Node must target the correct host (`UNITY_HOST`).
+- **Unity domain reload**: the server stops during script reloads and may restart; avoid relying on persistent in-memory state across reloads.
+
+### Release/version bump checklist
+- Update versions consistently:
+  - Unity package `package.json` (`version`)
+  - Node server `Server~/package.json` (`version`)
+  - MCP registry `server.json` (`version` + npm identifier/version)
+- Rebuild Node output: `cd Server~ && npm run build`
+
+### Update policy (for agents)
+- Update this file when:
+  - tools/resources/prompts are added/removed/renamed,
+  - config shape or default ports/paths change,
+  - the bridge protocol changes (request/response contract).
+- Keep it **high-signal**: where to edit code, how to run/build/debug, and the invariants that prevent subtle breakage.
 

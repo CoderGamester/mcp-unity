@@ -278,6 +278,19 @@ namespace McpUnity.Unity
             // Register GetGameObjectTool
             GetGameObjectTool getGameObjectTool = new GetGameObjectTool();
             _tools.Add(getGameObjectTool.Name, getGameObjectTool);
+
+            // Register Material Tools
+            CreateMaterialTool createMaterialTool = new CreateMaterialTool();
+            _tools.Add(createMaterialTool.Name, createMaterialTool);
+
+            AssignMaterialTool assignMaterialTool = new AssignMaterialTool();
+            _tools.Add(assignMaterialTool.Name, assignMaterialTool);
+
+            ModifyMaterialTool modifyMaterialTool = new ModifyMaterialTool();
+            _tools.Add(modifyMaterialTool.Name, modifyMaterialTool);
+
+            GetMaterialInfoTool getMaterialInfoTool = new GetMaterialInfoTool();
+            _tools.Add(getMaterialInfoTool.Name, getMaterialInfoTool);
         }
         
         /// <summary>

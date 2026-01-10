@@ -63,6 +63,21 @@ namespace McpUnity.Utils
         }
 
         /// <summary>
+        /// Generates the MCP configuration TOML to setup the Unity MCP server in TOML-based AI Clients (e.g., Codex CLI)
+        /// </summary>
+        /// <returns>The TOML configuration string for mcp-unity server</returns>
+        public static string GenerateMcpConfigToml()
+        {
+            string indexJsPath = Path.Combine(GetServerPath(), "build", "index.js").Replace("\\", "/");
+            
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[mcp_servers.mcp-unity]");
+            sb.AppendLine("command = \"node\"");
+            sb.AppendLine($"args = [\"{indexJsPath}\"]");
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// Gets the absolute path to the Server directory containing package.json (root server dir).
         /// Works whether MCP Unity is installed via Package Manager or directly in the Assets folder
         /// </summary>
@@ -178,15 +193,6 @@ namespace McpUnity.Utils
         }
         
         /// <summary>
-        /// Adds the MCP configuration to the Claude Desktop config file
-        /// </summary>
-        public static bool AddToClaudeDesktopConfig(bool useTabsIndentation)
-        {
-            string configFilePath = GetClaudeDesktopConfigPath();
-            return AddToConfigFile(configFilePath, useTabsIndentation, "Claude Desktop");
-        }
-        
-        /// <summary>
         /// Adds the MCP configuration to the Cursor config file
         /// </summary>
         public static bool AddToCursorConfig(bool useTabsIndentation)
@@ -220,6 +226,15 @@ namespace McpUnity.Utils
         {
             string configFilePath = GetGitHubCopilotConfigPath();
             return AddToConfigFile(configFilePath, useTabsIndentation, "GitHub Copilot");
+        }
+
+        /// <summary>
+        /// Adds the MCP configuration to the Codex CLI config file (TOML format)
+        /// </summary>
+        public static bool AddToCodexCliConfig(bool useTabsIndentation)
+        {
+            string configFilePath = GetCodexCliConfigPath();
+            return AddToTomlConfigFile(configFilePath, "Codex CLI");
         }
 
         /// <summary>
@@ -298,37 +313,6 @@ namespace McpUnity.Utils
             
             // Return the path to the mcp_config.json file
             return Path.Combine(basePath, "mcp_config.json");
-        }
-        
-        /// <summary>
-        /// Gets the path to the Claude Desktop config file based on the current OS
-        /// </summary>
-        /// <returns>The path to the Claude Desktop config file</returns>
-        private static string GetClaudeDesktopConfigPath()
-        {
-            // Base path depends on the OS
-            string basePath;
-            
-            if (Application.platform == RuntimePlatform.WindowsEditor)
-            {
-                // Windows: %USERPROFILE%/AppData/Roaming/Claude
-                basePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude");
-            }
-            else if (Application.platform == RuntimePlatform.OSXEditor)
-            {
-                // macOS: ~/Library/Application Support/Claude
-                string homeDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-                basePath = Path.Combine(homeDir, "Library", "Application Support", "Claude");
-            }
-            else
-            {
-                // Unsupported platform
-                Debug.LogError("Unsupported platform for Claude Desktop config");
-                return null;
-            }
-            
-            // Return the path to the claude_desktop_config.json file
-            return Path.Combine(basePath, "claude_desktop_config.json");
         }
 
         /// <summary>
@@ -433,6 +417,137 @@ namespace McpUnity.Utils
             string projectRoot = Directory.GetParent(Application.dataPath).FullName;
             string vscodeDir = Path.Combine(projectRoot, ".vscode");
             return Path.Combine(vscodeDir, "mcp.json");
+        }
+
+        /// <summary>
+        /// Gets the path to the Codex CLI config file based on the current OS
+        /// </summary>
+        /// <returns>The path to the Codex CLI config file</returns>
+        private static string GetCodexCliConfigPath()
+        {
+            // Codex CLI uses ~/.codex/config.toml on all platforms
+            string homeDir;
+            
+            if (Application.platform == RuntimePlatform.WindowsEditor)
+            {
+                // Windows: %USERPROFILE%\.codex\config.toml
+                homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            }
+            else if (Application.platform == RuntimePlatform.OSXEditor)
+            {
+                // macOS: ~/.codex/config.toml
+                homeDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            }
+            else
+            {
+                Debug.LogError("Unsupported platform for Codex CLI config");
+                return null;
+            }
+            
+            return Path.Combine(homeDir, ".codex", "config.toml");
+        }
+
+        /// <summary>
+        /// Common method to add MCP configuration to a TOML-based config file
+        /// </summary>
+        /// <param name="configFilePath">Path to the TOML config file</param>
+        /// <param name="productName">Name of the product (for error messages)</param>
+        /// <returns>True if successfully added the config, false otherwise</returns>
+        private static bool AddToTomlConfigFile(string configFilePath, string productName)
+        {
+            if (string.IsNullOrEmpty(configFilePath))
+            {
+                Debug.LogError($"{productName} config file path not found. Please make sure {productName} is installed.");
+                return false;
+            }
+            
+            try
+            {
+                // Generate fresh MCP config TOML
+                string mcpServerConfig = "\n" + GenerateMcpConfigToml();
+                
+                string directoryPath = Path.GetDirectoryName(configFilePath);
+                
+                // Check if the config file exists
+                if (File.Exists(configFilePath))
+                {
+                    return TryMergeMcpServersToml(configFilePath, mcpServerConfig, productName);
+                }
+                else if (Directory.Exists(directoryPath))
+                {
+                    // Create a new config file
+                    File.WriteAllText(configFilePath, mcpServerConfig.TrimStart());
+                    return true;
+                }
+                else
+                {
+                    // Create directory and file
+                    Directory.CreateDirectory(directoryPath);
+                    File.WriteAllText(configFilePath, mcpServerConfig.TrimStart());
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Failed to add MCP configuration to {productName}: {ex}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Helper to merge mcp_servers.mcp-unity section into an existing TOML config file.
+        /// </summary>
+        /// <param name="configFilePath">Path to the existing TOML config file</param>
+        /// <param name="mcpServerConfig">The new mcp-unity TOML configuration to merge</param>
+        /// <param name="productName">Name of the product (for error messages)</param>
+        /// <returns>True if successfully merged, false otherwise</returns>
+        private static bool TryMergeMcpServersToml(string configFilePath, string mcpServerConfig, string productName)
+        {
+            string existingContent = File.ReadAllText(configFilePath);
+            
+            // Check if mcp-unity is already configured
+            if (existingContent.Contains("[mcp_servers.mcp-unity]"))
+            {
+                // Update existing configuration
+                // Find the start of the mcp-unity section
+                int startIndex = existingContent.IndexOf("[mcp_servers.mcp-unity]", StringComparison.Ordinal);
+                
+                // Find the end of this section (next section header or end of file)
+                int endIndex = FindNextTomlSectionIndex(existingContent, startIndex + 23);
+                
+                string newContent = existingContent.Substring(0, startIndex) + 
+                                  mcpServerConfig.TrimStart() + 
+                                  existingContent.Substring(endIndex);
+                File.WriteAllText(configFilePath, newContent);
+            }
+            else
+            {
+                // Append the new configuration
+                File.AppendAllText(configFilePath, mcpServerConfig);
+            }
+            
+            return true;
+        }
+
+        /// <summary>
+        /// Finds the index of the next TOML section header starting from the given position.
+        /// Returns the length of the content if no next section is found.
+        /// </summary>
+        /// <param name="content">The TOML content to search</param>
+        /// <param name="startPosition">The position to start searching from</param>
+        /// <returns>The index of the next section header, or content length if not found</returns>
+        private static int FindNextTomlSectionIndex(string content, int startPosition)
+        {
+            // Look for patterns like [section] or [section.subsection]
+            int nextSectionIndex = content.IndexOf("\n[", startPosition, StringComparison.Ordinal);
+            
+            if (nextSectionIndex == -1)
+            {
+                // No more sections, return end of content
+                return content.Length;
+            }
+            
+            return nextSectionIndex;
         }
 
         /// <summary>

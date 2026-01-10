@@ -37,7 +37,7 @@ interface UnityResponse {
 export type ConnectionStateCallback = (change: ConnectionStateChange) => void;
 
 // Re-export connection types for consumers
-export { ConnectionState, ConnectionStateChange } from './unityConnection.js';
+export { ConnectionState, type ConnectionStateChange } from './unityConnection.js';
 
 export class McpUnity {
   private logger: Logger;

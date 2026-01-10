@@ -114,18 +114,18 @@ namespace McpUnity.Unity
         /// </summary>
         protected override void OnOpen()
         {
-            // Extract client name from the X-Client-Name header
+            // Extract client name from the X-Client-Name header (if available)
             string clientName = "";
             NameValueCollection headers = Context.Headers;
             if (headers != null && headers.Contains("X-Client-Name"))
             {
                 clientName = headers["X-Client-Name"];
-                
-                // Add the client name on the server
-                _server.Clients.Add(ID, clientName);
             }
             
-            McpLogger.LogInfo($"WebSocket client '{clientName}' connected");
+            // Always add the client to the server's tracking dictionary
+            _server.Clients[ID] = clientName;
+            
+            McpLogger.LogInfo($"WebSocket client connected (ID: {ID}, Name: {(string.IsNullOrEmpty(clientName) ? "Unknown" : clientName)})");
         }
         
         /// <summary>

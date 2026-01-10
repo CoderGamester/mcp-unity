@@ -41,7 +41,7 @@
      ╚═╝     ╚═╝ ╚═════╝╚═╝              ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝      ╚═╝   
 ```       
 
-MCP Unity is an implementation of the Model Context Protocol for Unity Editor, allowing AI assistants to interact with your Unity projects. This package provides a bridge between Unity and a Node.js server that implements the MCP protocol, enabling AI agents like Claude, Windsurf, Cursor, and Google Antigravity to execute operations within the Unity Editor.
+MCP Unity is an implementation of the Model Context Protocol for Unity Editor, allowing AI assistants to interact with your Unity projects. This package provides a bridge between Unity and a Node.js server that implements the MCP protocol, enabling AI agents like Cursor, Windsurf, Claude Code, Codex CLI, GitHub Copilot, and Google Antigravity to execute operations within the Unity Editor.
 
 ## Features
 
@@ -83,6 +83,21 @@ The following tools are available for manipulating and querying Unity scenes and
 
 - `create_prefab`: Creates a prefab with optional MonoBehaviour script and serialized field values
   > **Example prompt:** "Create a prefab named 'Player' from the 'PlayerController' script"
+
+- `create_scene`: Creates a new scene and saves it to the specified path
+  > **Example prompt:** "Create a new scene called 'Level1' in the Scenes folder"
+
+- `load_scene`: Loads a scene by path or name, with optional additive loading
+  > **Example prompt:** "Load the MainMenu scene"
+
+- `delete_scene`: Deletes a scene by path or name and removes it from Build Settings
+  > **Example prompt:** "Delete the old TestScene from my project"
+
+- `get_gameobject`: Gets detailed information about a specific GameObject including all components
+  > **Example prompt:** "Get the details of the Player GameObject"
+
+- `get_console_logs`: Retrieves logs from the Unity console with pagination support
+  > **Example prompt:** "Show me the last 20 error logs from the Unity console"
 
 - `recompile_scripts`: Recompiles all scripts in the Unity project
   > **Example prompt:** "Recompile scripts in my Unity project"
@@ -190,9 +205,11 @@ Installing this MCP Unity Server is a multi-step process:
 <details>
 <summary><span style="font-size: 1.1em; font-weight: bold;">Option 2: Configure Manually</span></summary>
 
-Open the MCP configuration file of your AI client (e.g. claude_desktop_config.json in Claude Desktop) and copy the following text:
+Open the MCP configuration file of your AI client and add the MCP Unity server configuration:
 
 > Replace `ABSOLUTE/PATH/TO` with the absolute path to your MCP Unity installation or just copy the text from the Unity Editor MCP Server window (Tools > MCP Unity > Server Window).
+
+**For JSON-based clients** (Cursor, Windsurf, Claude Code, GitHub Copilot, etc.):
 
 ```json
 {
@@ -207,13 +224,21 @@ Open the MCP configuration file of your AI client (e.g. claude_desktop_config.js
 }
 ```
 
+**For Codex CLI** (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.mcp-unity]
+command = "node"
+args = ["ABSOLUTE/PATH/TO/mcp-unity/Server~/build/index.js"]
+```
+
 </details>
 
 ## <a name="start-server"></a>Start Unity Editor MCP Server
 1. Open the Unity Editor
 2. Navigate to Tools > MCP Unity > Server Window
 3. Click "Start Server" to start the WebSocket server
-4. Open Claude Desktop or your AI Coding IDE (e.g. Cursor IDE, Windsurf IDE, Google Antigravity, etc.) and start executing Unity tools
+4. Open your AI Coding IDE (e.g. Cursor, Windsurf, Claude Code, Codex CLI, GitHub Copilot, Google Antigravity, etc.) and start executing Unity tools
    
 ![connect](https://github.com/user-attachments/assets/2e266a8b-8ba3-4902-b585-b220b11ab9a2)
 
@@ -382,10 +407,11 @@ Unity 6.2 is set to introduce new built-in AI tools, including the previous Unit
 <summary><span style="font-size: 1.1em; font-weight: bold;">What MCP hosts and IDEs currently support MCP Unity?</span></summary>
 
 MCP Unity is designed to work with any AI assistant or development environment that can act as an MCP client. The ecosystem is growing, but current known integrations or compatible platforms include:
--  Windsurf
 -  Cursor
+-  Windsurf
+-  Claude Code
+-  Codex CLI
 -  GitHub Copilot
--  Claude Desktop
 -  Google Antigravity
 
 </details>

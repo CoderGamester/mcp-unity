@@ -1,9 +1,9 @@
-import WebSocket from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { Logger } from '../utils/logger.js';
 import { McpUnityError, ErrorType } from '../utils/errors.js';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { UnityConnection, ConnectionState, ConnectionStateChange, UnityConnectionConfig } from './unityConnection.js';
 
 // Top-level constant for the Unity settings JSON path
 const MCP_UNITY_SETTINGS_PATH = path.resolve(process.cwd(), '../ProjectSettings/McpUnitySettings.json');
@@ -31,19 +31,31 @@ interface UnityResponse {
   };
 }
 
+/**
+ * Connection state change callback type
+ */
+export type ConnectionStateCallback = (change: ConnectionStateChange) => void;
+
+// Re-export connection types for consumers
+export { ConnectionState, type ConnectionStateChange } from './unityConnection.js';
+
 export class McpUnity {
   private logger: Logger;
-  private port: number | null = null;
+  private port: number = 8090;
   private host: string = 'localhost';
-  private ws: WebSocket | null = null;
-  private pendingRequests: Map<string, PendingRequest> = new Map<string, PendingRequest>();
   private requestTimeout = 10000;
-  private retryDelay = 1000;
-  
+
+  private connection: UnityConnection | null = null;
+  private pendingRequests: Map<string, PendingRequest> = new Map<string, PendingRequest>();
+  private clientName: string = '';
+
+  // Connection state listeners
+  private stateListeners: Set<ConnectionStateCallback> = new Set();
+
   constructor(logger: Logger) {
     this.logger = logger;
   }
-  
+
   /**
    * Start the Unity connection
    * @param clientName Optional name of the MCP client connecting to Unity
@@ -53,21 +65,46 @@ export class McpUnity {
       this.logger.info('Attempting to read startup parameters...');
       await this.parseAndSetConfig();
 
+      this.clientName = clientName || '';
+
+      // Create connection with configuration
+      const config: UnityConnectionConfig = {
+        host: this.host,
+        port: this.port,
+        requestTimeout: this.requestTimeout,
+        clientName: this.clientName,
+        // Use defaults for reconnection and heartbeat from UnityConnection
+      };
+
+      this.connection = new UnityConnection(this.logger, config);
+
+      // Set up event handlers
+      this.connection.on('stateChange', (change: ConnectionStateChange) => {
+        this.handleStateChange(change);
+      });
+
+      this.connection.on('message', (data: string) => {
+        this.handleMessage(data);
+      });
+
+      this.connection.on('error', (error: McpUnityError) => {
+        this.logger.error(`Connection error: ${error.message}`);
+        // Reject pending requests on connection error
+        this.rejectAllPendingRequests(error);
+      });
+
       this.logger.info('Attempting to connect to Unity WebSocket...');
-      await this.connect(clientName); // Pass client name to connect
+      await this.connection.connect();
       this.logger.info('Successfully connected to Unity WebSocket');
-      
+
       if (clientName) {
         this.logger.info(`Client identified to Unity as: ${clientName}`);
       }
     } catch (error) {
       this.logger.warn(`Could not connect to Unity WebSocket: ${error instanceof Error ? error.message : String(error)}`);
-      this.logger.warn('Will retry connection on next request');
-
-      // Disconnect to clean up for the next request attempt
-      this.disconnect();
+      this.logger.warn('Will retry connection on next request (with automatic reconnection)');
     }
-    
+
     return Promise.resolve();
   }
 
@@ -80,91 +117,53 @@ export class McpUnity {
     const configPort = config.Port;
     this.port = configPort ? parseInt(configPort, 10) : 8090;
     this.logger.info(`Using port: ${this.port} for Unity WebSocket connection`);
-    
+
     // Check environment variable first, then config file, then default to localhost
     const configHost = process.env.UNITY_HOST || config.Host;
     this.host = configHost || 'localhost';
-    
+
     // Initialize timeout from environment variable (in seconds; it is the same as Cline) or use default (10 seconds)
     const configTimeout = config.RequestTimeoutSeconds;
     this.requestTimeout = configTimeout ? parseInt(configTimeout, 10) * 1000 : 10000;
     this.logger.info(`Using request timeout: ${this.requestTimeout / 1000} seconds`);
   }
-  
+
   /**
-   * Connect to the Unity WebSocket
-   * @param clientName Optional name of the MCP client connecting to Unity
+   * Handle connection state changes
    */
-  private async connect(clientName?: string): Promise<void> {
-    if (this.isConnected) {
-      this.logger.debug('Already connected to Unity WebSocket');
-      return Promise.resolve();
+  private handleStateChange(change: ConnectionStateChange): void {
+    this.logger.debug(`Connection state changed: ${change.previousState} -> ${change.currentState}`);
+
+    // Notify all listeners
+    for (const listener of this.stateListeners) {
+      try {
+        listener(change);
+      } catch (err) {
+        this.logger.error(`Error in state listener: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
-    
-    // First, properly close any existing WebSocket connection
-    this.disconnect();
-    
-    return new Promise<void>((resolve, reject) => {
-      const wsUrl = `ws://${this.host}:${this.port}/McpUnity`;
-      this.logger.debug(`Connecting to ${wsUrl}...`);
-      
-      // Create connection options with headers for client identification
-      const options: WebSocket.ClientOptions = {
-        headers: {
-          'X-Client-Name': clientName || ''
-        },
-        origin: clientName || ''
-      };
-      
-      // Create a new WebSocket with options
-      this.ws = new WebSocket(wsUrl, options);
-      
-      const connectionTimeout = setTimeout(() => {
-        if (this.ws && (this.ws.readyState === WebSocket.CONNECTING)) {
-          this.logger.warn('Connection timeout, terminating WebSocket');
-          this.disconnect();
-          reject(new McpUnityError(ErrorType.CONNECTION, 'Connection timeout'));
-        }
-      }, this.requestTimeout);
-        
-      this.ws.onopen = () => {
-        clearTimeout(connectionTimeout);
-        this.logger.debug('WebSocket connected');
-        resolve();
-      };
-        
-      this.ws.onerror = (err) => {
-        clearTimeout(connectionTimeout);
-        this.logger.error(`WebSocket error: ${err.message || 'Unknown error'}`);
-        reject(new McpUnityError(ErrorType.CONNECTION, `Connection failed: ${err.message || 'Unknown error'}`));
-        this.disconnect();
-      };
-        
-      this.ws.onmessage = (event) => {
-        this.handleMessage(event.data.toString());
-      };
-        
-      this.ws.onclose = () => {
-        this.logger.debug('WebSocket closed');
-        this.disconnect();
-        //this.logger.debug('WebSocket closed. Reconnecting in', this.retryDelay);
-        //setTimeout(this.connect, this.retryDelay);
-      };
-    });
+
+    // Handle specific state transitions
+    if (change.currentState === ConnectionState.Disconnected) {
+      // Reject all pending requests when disconnected
+      this.rejectAllPendingRequests(
+        new McpUnityError(ErrorType.CONNECTION, change.reason || 'Connection lost')
+      );
+    }
   }
-  
+
   /**
    * Handle messages received from Unity
    */
   private handleMessage(data: string): void {
     try {
       const response = JSON.parse(data) as UnityResponse;
-      
+
       if (response.id && this.pendingRequests.has(response.id)) {
         const request = this.pendingRequests.get(response.id)!;
         clearTimeout(request.timeout);
         this.pendingRequests.delete(response.id);
-        
+
         if (response.error) {
           request.reject(new McpUnityError(
             ErrorType.TOOL_EXECUTION,
@@ -179,105 +178,83 @@ export class McpUnity {
       this.logger.error(`Error parsing WebSocket message: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  
-  /**
-   * Disconnect from Unity
-   */
-  private disconnect(): void {
-    if (this.ws) {
-      this.logger.debug(`Disconnecting WebSocket in state: ${this.ws.readyState}`);
-      
-      // First remove all event handlers to prevent callbacks during close
-      this.ws.onopen = null;
-      this.ws.onmessage = null;
-      this.ws.onerror = null;
-      this.ws.onclose = null;
-      
-      // Different handling based on WebSocket state
-      try {
-        if (this.ws.readyState === WebSocket.CONNECTING) {
-          // For sockets still connecting, use terminate() to force immediate close
-          this.ws.terminate();
-        } else if (this.ws.readyState === WebSocket.OPEN) {
-          // For open sockets, use close() for clean shutdown
-          this.ws.close();
-        }
-      } catch (err) {
-        this.logger.error(`Error closing WebSocket: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      
-      // Clear the reference
-      this.ws = null;
-      
-      // Reject all pending requests
-      for (const [id, request] of this.pendingRequests.entries()) {
-        clearTimeout(request.timeout);
-        request.reject(new McpUnityError(ErrorType.CONNECTION, 'Connection closed'));
-        this.pendingRequests.delete(id);
-      }
-    }
-  }
 
   /**
-   * Tries to reconnect to Unity
+   * Reject all pending requests with an error
    */
-  private reconnect(): void {
-    this.disconnect();
-    this.connect();
+  private rejectAllPendingRequests(error: McpUnityError): void {
+    for (const [id, request] of this.pendingRequests.entries()) {
+      clearTimeout(request.timeout);
+      request.reject(error);
+      this.pendingRequests.delete(id);
+    }
   }
 
   /**
    * Stop the Unity connection
    */
   public async stop(): Promise<void> {
-    this.disconnect();
+    if (this.connection) {
+      this.connection.disconnect('Server stopping');
+      this.connection.removeAllListeners();
+      this.connection = null;
+    }
+    this.rejectAllPendingRequests(new McpUnityError(ErrorType.CONNECTION, 'Server stopped'));
     this.logger.info('Unity WebSocket client stopped');
     return Promise.resolve();
   }
-  
+
   /**
    * Send a request to the Unity server
    */
   public async sendRequest(request: UnityRequest): Promise<any> {
     // Ensure we're connected first
     if (!this.isConnected) {
+      if (!this.connection) {
+        throw new McpUnityError(ErrorType.CONNECTION, 'Not started - call start() first');
+      }
+
       this.logger.info('Not connected to Unity, connecting first...');
-      await this.connect();
+      await this.connection.connect();
     }
-    
-      // Use given id or generate a new one
+
+    // Use given id or generate a new one
     const requestId = request.id as string || uuidv4();
     const message: UnityRequest = {
       ...request,
-        id: requestId
-      };
-    
+      id: requestId
+    };
+
     return new Promise((resolve, reject) => {
       // Double check isConnected again after await
-      if (!this.ws || !this.isConnected) {
+      if (!this.connection || !this.isConnected) {
         reject(new McpUnityError(ErrorType.CONNECTION, 'Not connected to Unity'));
         return;
       }
-      
+
       // Create timeout for the request
       const timeout = setTimeout(() => {
         if (this.pendingRequests.has(requestId)) {
           this.logger.error(`Request ${requestId} timed out after ${this.requestTimeout}ms`);
           this.pendingRequests.delete(requestId);
           reject(new McpUnityError(ErrorType.TIMEOUT, 'Request timed out'));
+
+          // Force reconnection on timeout (connection may be stale)
+          if (this.connection) {
+            this.connection.forceReconnect();
+          }
         }
-        this.reconnect();
       }, this.requestTimeout);
-      
+
       // Store pending request
       this.pendingRequests.set(requestId, {
         resolve,
         reject,
         timeout
       });
-      
+
       try {
-        this.ws.send(JSON.stringify(message));
+        this.connection.send(JSON.stringify(message));
         this.logger.debug(`Request sent: ${requestId}`);
       } catch (err) {
         clearTimeout(timeout);
@@ -286,14 +263,69 @@ export class McpUnity {
       }
     });
   }
-  
+
   /**
    * Check if connected to Unity
    * Only returns true if the connection is guaranteed to be active
    */
   public get isConnected(): boolean {
-    // Basic WebSocket connection check
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    return this.connection !== null && this.connection.isConnected;
+  }
+
+  /**
+   * Get current connection state
+   */
+  public get connectionState(): ConnectionState {
+    return this.connection?.connectionState ?? ConnectionState.Disconnected;
+  }
+
+  /**
+   * Check if currently connecting or reconnecting
+   */
+  public get isConnecting(): boolean {
+    return this.connection?.isConnecting ?? false;
+  }
+
+  /**
+   * Add a listener for connection state changes
+   * @param callback Function to call when connection state changes
+   * @returns Function to remove the listener
+   */
+  public onConnectionStateChange(callback: ConnectionStateCallback): () => void {
+    this.stateListeners.add(callback);
+    return () => {
+      this.stateListeners.delete(callback);
+    };
+  }
+
+  /**
+   * Force a reconnection to Unity
+   * Useful when Unity has reloaded and the connection may be stale
+   */
+  public forceReconnect(): void {
+    if (this.connection) {
+      this.connection.forceReconnect();
+    } else {
+      this.logger.warn('Cannot force reconnect - not started');
+    }
+  }
+
+  /**
+   * Get connection statistics
+   */
+  public getConnectionStats(): {
+    state: ConnectionState;
+    pendingRequests: number;
+    reconnectAttempt?: number;
+    timeSinceLastPong?: number;
+  } {
+    const stats = this.connection?.getStats();
+    return {
+      state: stats?.state ?? ConnectionState.Disconnected,
+      pendingRequests: this.pendingRequests.size,
+      reconnectAttempt: stats?.reconnectAttempt,
+      timeSinceLastPong: stats?.timeSinceLastPong
+    };
   }
 
   /**

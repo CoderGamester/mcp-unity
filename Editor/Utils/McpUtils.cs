@@ -193,6 +193,15 @@ namespace McpUnity.Utils
         }
         
         /// <summary>
+        /// Adds the MCP configuration to the Claude Desktop config file
+        /// </summary>
+        public static bool AddToClaudeDesktopConfig(bool useTabsIndentation)
+        {
+            string configFilePath = GetClaudeDesktopConfigPath();
+            return AddToConfigFile(configFilePath, useTabsIndentation, "Claude Desktop");
+        }
+        
+        /// <summary>
         /// Adds the MCP configuration to the Cursor config file
         /// </summary>
         public static bool AddToCursorConfig(bool useTabsIndentation)
@@ -313,6 +322,37 @@ namespace McpUnity.Utils
             
             // Return the path to the mcp_config.json file
             return Path.Combine(basePath, "mcp_config.json");
+        }
+        
+        /// <summary>
+        /// Gets the path to the Claude Desktop config file based on the current OS
+        /// </summary>
+        /// <returns>The path to the Claude Desktop config file</returns>
+        private static string GetClaudeDesktopConfigPath()
+        {
+            // Base path depends on the OS
+            string basePath;
+            
+            if (Application.platform == RuntimePlatform.WindowsEditor)
+            {
+                // Windows: %USERPROFILE%/AppData/Roaming/Claude
+                basePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude");
+            }
+            else if (Application.platform == RuntimePlatform.OSXEditor)
+            {
+                // macOS: ~/Library/Application Support/Claude
+                string homeDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+                basePath = Path.Combine(homeDir, "Library", "Application Support", "Claude");
+            }
+            else
+            {
+                // Unsupported platform
+                Debug.LogError("Unsupported platform for Claude Desktop config");
+                return null;
+            }
+            
+            // Return the path to the claude_desktop_config.json file
+            return Path.Combine(basePath, "claude_desktop_config.json");
         }
 
         /// <summary>

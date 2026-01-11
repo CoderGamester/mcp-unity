@@ -259,6 +259,10 @@ namespace McpUnity.Unity
             
             EditorGUILayout.Space();
             
+            ShowConfigButton("Claude Desktop", McpUtils.AddToClaudeDesktopConfig);
+            
+            EditorGUILayout.Space();
+            
             ShowConfigButton("Cursor", McpUtils.AddToCursorConfig);
 
             EditorGUILayout.Space();

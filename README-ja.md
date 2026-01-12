@@ -85,6 +85,51 @@ MCP Unityは、Unityの`Library/PackedCache`フォルダーをワークスペー
 - `recompile_scripts`: Unityプロジェクト内のすべてのスクリプトを再コンパイル
   > **例:** "Unityプロジェクト内のすべてのスクリプトを再コンパイル"
 
+- `create_scene`: 新しいシーンを作成し、指定されたパスに保存
+  > **例:** "Scenesフォルダに'Level1'という新しいシーンを作成"
+
+- `load_scene`: パスまたは名前でシーンをロード（オプションで追加ロード可能）
+  > **例:** "MainMenuシーンをロード"
+
+- `delete_scene`: パスまたは名前でシーンを削除し、ビルド設定から削除
+  > **例:** "プロジェクトから古いTestSceneを削除"
+
+- `get_gameobject`: すべてのコンポーネントを含む特定のGameObjectの詳細情報を取得
+  > **例:** "Player GameObjectの詳細を取得"
+
+- `get_console_logs`: ページネーションをサポートしてUnityコンソールからログを取得
+  > **例:** "Unityコンソールから最新の20件のエラーログを表示"
+
+- `save_scene`: 現在のアクティブなシーンを保存（オプションで別名保存可能）
+  > **例:** "現在のシーンを保存" または "シーンを'Assets/Scenes/Level2.unity'として保存"
+
+- `get_scene_info`: 名前、パス、ダーティ状態、ロードされたすべてのシーンを含むアクティブなシーンの情報を取得
+  > **例:** "プロジェクトで現在ロードされているシーンは？"
+
+- `unload_scene`: 階層からシーンをアンロード（シーンアセットは削除しない）
+  > **例:** "階層からUIシーンをアンロード"
+
+- `duplicate_gameobject`: シーン内のGameObjectを複製（オプションで名前変更や親の再設定が可能）
+  > **例:** "Enemyプレハブを5回複製し、Enemy_1からEnemy_5に名前を変更"
+
+- `delete_gameobject`: シーンからGameObjectを削除
+  > **例:** "シーンから古いPlayerオブジェクトを削除"
+
+- `reparent_gameobject`: 階層内のGameObjectの親を変更
+  > **例:** "HealthBarオブジェクトをUI Canvasの子に移動"
+
+- `create_material`: 指定されたシェーダーで新しいマテリアルを作成し、プロジェクトに保存
+  > **例:** "URP Litシェーダーを使用して'EnemyMaterial'という赤いマテリアルを作成"
+
+- `assign_material`: GameObjectのRendererコンポーネントにマテリアルを割り当て
+  > **例:** "'EnemyMaterial'をEnemy GameObjectに割り当て"
+
+- `modify_material`: 既存のマテリアルのプロパティ（色、浮動小数点数、テクスチャ）を変更
+  > **例:** "'EnemyMaterial'の色を青に変更し、メタリックを0.8に設定"
+
+- `get_material_info`: シェーダーとすべてのプロパティを含むマテリアルの詳細情報を取得
+  > **例:** "'PlayerMaterial'のすべてのプロパティを表示"
+
 ### MCPサーバーリソース
 
 - `unity://menu-items`: `execute_menu_item`ツールを容易にするために、Unityエディターで利用可能なすべてのメニュー項目のリストを取得

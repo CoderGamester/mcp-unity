@@ -102,6 +102,36 @@ The following tools are available for manipulating and querying Unity scenes and
 - `recompile_scripts`: Recompiles all scripts in the Unity project
   > **Example prompt:** "Recompile scripts in my Unity project"
 
+- `save_scene`: Saves the current active scene, with optional Save As to a new path
+  > **Example prompt:** "Save the current scene" or "Save the scene as 'Assets/Scenes/Level2.unity'"
+
+- `get_scene_info`: Gets information about the active scene including name, path, dirty state, and all loaded scenes
+  > **Example prompt:** "What scenes are currently loaded in my project?"
+
+- `unload_scene`: Unloads a scene from the hierarchy (does not delete the scene asset)
+  > **Example prompt:** "Unload the UI scene from the hierarchy"
+
+- `duplicate_gameobject`: Duplicates a GameObject in the scene with optional renaming and reparenting
+  > **Example prompt:** "Duplicate the Enemy prefab 5 times and rename them Enemy_1 through Enemy_5"
+
+- `delete_gameobject`: Deletes a GameObject from the scene
+  > **Example prompt:** "Delete the old Player object from the scene"
+
+- `reparent_gameobject`: Changes the parent of a GameObject in the hierarchy
+  > **Example prompt:** "Move the HealthBar object to be a child of the UI Canvas"
+
+- `create_material`: Creates a new material with specified shader and saves it to the project
+  > **Example prompt:** "Create a red material called 'EnemyMaterial' using the URP Lit shader"
+
+- `assign_material`: Assigns a material to a GameObject's Renderer component
+  > **Example prompt:** "Assign the 'EnemyMaterial' to the Enemy GameObject"
+
+- `modify_material`: Modifies properties of an existing material (colors, floats, textures)
+  > **Example prompt:** "Change the color of 'EnemyMaterial' to blue and set metallic to 0.8"
+
+- `get_material_info`: Gets detailed information about a material including shader and all properties
+  > **Example prompt:** "Show me all the properties of the 'PlayerMaterial'"
+
 ### MCP Server Resources
 
 - `unity://menu-items`: Retrieves a list of all available menu items in the Unity Editor to facilitate `execute_menu_item` tool

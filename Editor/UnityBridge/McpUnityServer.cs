@@ -278,6 +278,18 @@ namespace McpUnity.Unity
             // Register GetGameObjectTool
             GetGameObjectTool getGameObjectTool = new GetGameObjectTool();
             _tools.Add(getGameObjectTool.Name, getGameObjectTool);
+
+            // Register DuplicateGameObjectTool
+            DuplicateGameObjectTool duplicateGameObjectTool = new DuplicateGameObjectTool();
+            _tools.Add(duplicateGameObjectTool.Name, duplicateGameObjectTool);
+
+            // Register DeleteGameObjectTool
+            DeleteGameObjectTool deleteGameObjectTool = new DeleteGameObjectTool();
+            _tools.Add(deleteGameObjectTool.Name, deleteGameObjectTool);
+
+            // Register ReparentGameObjectTool
+            ReparentGameObjectTool reparentGameObjectTool = new ReparentGameObjectTool();
+            _tools.Add(reparentGameObjectTool.Name, reparentGameObjectTool);
         }
         
         /// <summary>

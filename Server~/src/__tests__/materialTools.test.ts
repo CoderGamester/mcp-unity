@@ -169,10 +169,11 @@ describe('Material Tools', () => {
 
       await handler(params);
 
+      // Shader should be undefined - Unity auto-detects based on render pipeline
       expect(mockSendRequest).toHaveBeenCalledWith({
         method: 'create_material',
         params: expect.objectContaining({
-          shader: 'Standard'
+          shader: undefined
         })
       });
     });

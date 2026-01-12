@@ -234,7 +234,7 @@ namespace McpUnity.Tests
         }
 
         [Test]
-        public void CreateMaterialTool_WithDefaultShader_UsesStandard()
+        public void CreateMaterialTool_WithDefaultShader_UsesAutoDetectedShader()
         {
             // Arrange
             CreateMaterialTool tool = new CreateMaterialTool();
@@ -243,6 +243,7 @@ namespace McpUnity.Tests
                 ["name"] = "TestMaterial",
                 ["savePath"] = _testMaterialPath
             };
+            string expectedShader = MaterialToolUtils.GetDefaultShaderName();
 
             // Act
             JObject result = tool.Execute(parameters);
@@ -252,7 +253,7 @@ namespace McpUnity.Tests
 
             Material material = AssetDatabase.LoadAssetAtPath<Material>(_testMaterialPath);
             Assert.IsNotNull(material);
-            Assert.AreEqual("Standard", material.shader.name, "Default shader should be Standard");
+            Assert.AreEqual(expectedShader, material.shader.name, "Default shader should match auto-detected render pipeline shader");
         }
 
         #endregion

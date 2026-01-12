@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using McpUnity.Unity;
 using McpUnity.Utils;
 using UnityEngine;
@@ -31,6 +30,10 @@ namespace McpUnity.Tools
                 else if (pipelineName.Contains("HD") || pipelineName.Contains("HDRP"))
                 {
                     return "HDRP/Lit";
+                }
+                else
+                {
+                    McpLogger.LogWarning("Unknown render pipeline, defaulting to Standard shader");
                 }
             }
 

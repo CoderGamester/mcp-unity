@@ -302,6 +302,19 @@ namespace McpUnity.Unity
             // Register ReparentGameObjectTool
             ReparentGameObjectTool reparentGameObjectTool = new ReparentGameObjectTool();
             _tools.Add(reparentGameObjectTool.Name, reparentGameObjectTool);
+
+            // Register Transform Tools
+            MoveGameObjectTool moveGameObjectTool = new MoveGameObjectTool();
+            _tools.Add(moveGameObjectTool.Name, moveGameObjectTool);
+
+            RotateGameObjectTool rotateGameObjectTool = new RotateGameObjectTool();
+            _tools.Add(rotateGameObjectTool.Name, rotateGameObjectTool);
+
+            ScaleGameObjectTool scaleGameObjectTool = new ScaleGameObjectTool();
+            _tools.Add(scaleGameObjectTool.Name, scaleGameObjectTool);
+
+            SetTransformTool setTransformTool = new SetTransformTool();
+            _tools.Add(setTransformTool.Name, setTransformTool);
         }
         
         /// <summary>

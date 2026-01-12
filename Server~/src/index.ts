@@ -16,9 +16,13 @@ import { registerUpdateGameObjectTool } from './tools/updateGameObjectTool.js';
 import { registerCreatePrefabTool } from './tools/createPrefabTool.js';
 import { registerDeleteSceneTool } from './tools/deleteSceneTool.js';
 import { registerLoadSceneTool } from './tools/loadSceneTool.js';
+import { registerSaveSceneTool } from './tools/saveSceneTool.js';
+import { registerGetSceneInfoTool } from './tools/getSceneInfoTool.js';
+import { registerUnloadSceneTool } from './tools/unloadSceneTool.js';
 import { registerRecompileScriptsTool } from './tools/recompileScriptsTool.js';
 import { registerGetGameObjectTool } from './tools/getGameObjectTool.js';
 import { registerCreateMaterialTool, registerAssignMaterialTool, registerModifyMaterialTool, registerGetMaterialInfoTool } from './tools/materialTools.js';
+import { registerDuplicateGameObjectTool, registerDeleteGameObjectTool, registerReparentGameObjectTool } from './tools/gameObjectTools.js';
 import { registerGetMenuItemsResource } from './resources/getMenuItemResource.js';
 import { registerGetConsoleLogsResource } from './resources/getConsoleLogsResource.js';
 import { registerGetHierarchyResource } from './resources/getScenesHierarchyResource.js';
@@ -66,8 +70,14 @@ registerCreatePrefabTool(server, mcpUnity, toolLogger);
 registerCreateSceneTool(server, mcpUnity, toolLogger);
 registerDeleteSceneTool(server, mcpUnity, toolLogger);
 registerLoadSceneTool(server, mcpUnity, toolLogger);
+registerSaveSceneTool(server, mcpUnity, toolLogger);
+registerGetSceneInfoTool(server, mcpUnity, toolLogger);
+registerUnloadSceneTool(server, mcpUnity, toolLogger);
 registerRecompileScriptsTool(server, mcpUnity, toolLogger);
 registerGetGameObjectTool(server, mcpUnity, toolLogger);
+registerDuplicateGameObjectTool(server, mcpUnity, toolLogger);
+registerDeleteGameObjectTool(server, mcpUnity, toolLogger);
+registerReparentGameObjectTool(server, mcpUnity, toolLogger);
 
 // Register Material Tools
 registerCreateMaterialTool(server, mcpUnity, toolLogger);

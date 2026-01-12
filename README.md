@@ -120,6 +120,18 @@ The following tools are available for manipulating and querying Unity scenes and
 - `reparent_gameobject`: Changes the parent of a GameObject in the hierarchy
   > **Example prompt:** "Move the HealthBar object to be a child of the UI Canvas"
 
+- `move_gameobject`: Moves a GameObject to a new position (local or world space)
+  > **Example prompt:** "Move the Player object to position (10, 0, 5) in world space"
+
+- `rotate_gameobject`: Rotates a GameObject to a new rotation (local or world space, Euler angles or quaternion)
+  > **Example prompt:** "Rotate the Camera 45 degrees on the Y axis"
+
+- `scale_gameobject`: Scales a GameObject to a new local scale
+  > **Example prompt:** "Scale the Enemy object to twice its size"
+
+- `set_transform`: Sets position, rotation, and scale of a GameObject in a single operation
+  > **Example prompt:** "Set the Cube's position to (0, 5, 0), rotation to (0, 90, 0), and scale to (2, 2, 2)"
+
 - `create_material`: Creates a new material with specified shader and saves it to the project
   > **Example prompt:** "Create a red material called 'EnemyMaterial' using the URP Lit shader"
 
@@ -439,6 +451,7 @@ Unity 6.2 is set to introduce new built-in AI tools, including the previous Unit
 MCP Unity is designed to work with any AI assistant or development environment that can act as an MCP client. The ecosystem is growing, but current known integrations or compatible platforms include:
 -  Cursor
 -  Windsurf
+-  Claude Desktop
 -  Claude Code
 -  Codex CLI
 -  GitHub Copilot

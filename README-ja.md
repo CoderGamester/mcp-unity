@@ -118,6 +118,18 @@ MCP Unityは、Unityの`Library/PackedCache`フォルダーをワークスペー
 - `reparent_gameobject`: 階層内のGameObjectの親を変更
   > **例:** "HealthBarオブジェクトをUI Canvasの子に移動"
 
+- `move_gameobject`: GameObjectを新しい位置に移動（ローカルまたはワールド空間）
+  > **例:** "Playerオブジェクトをワールド空間の位置(10, 0, 5)に移動"
+
+- `rotate_gameobject`: GameObjectを新しい回転に変更（ローカルまたはワールド空間、オイラー角またはクォータニオン）
+  > **例:** "CameraをY軸に45度回転"
+
+- `scale_gameobject`: GameObjectを新しいローカルスケールに変更
+  > **例:** "Enemyオブジェクトを2倍のサイズに拡大"
+
+- `set_transform`: 単一の操作でGameObjectの位置、回転、スケールを設定
+  > **例:** "Cubeの位置を(0, 5, 0)、回転を(0, 90, 0)、スケールを(2, 2, 2)に設定"
+
 - `create_material`: 指定されたシェーダーで新しいマテリアルを作成し、プロジェクトに保存
   > **例:** "URP Litシェーダーを使用して'EnemyMaterial'という赤いマテリアルを作成"
 
@@ -425,10 +437,13 @@ Unity 6.2では、以前のUnity Muse（テクスチャやアニメーション�
 <summary><span style="font-size: 1.1em; font-weight: bold;">現在、どのMCPホストとIDEがMCP Unityをサポートしていますか？</span></summary>
 
 MCP Unityは、MCPクライアントとして機能できるAIアシスタントまたは開発環境と連携するように設計されています。エコシステムは成長していますが、現在の既知の統合または互換性のあるプラットフォームには以下が含まれます。
--  Windsurf
 -  Cursor
--  GitHub Copilot
+-  Windsurf
 -  Claude Desktop
+-  Claude Code
+-  Codex CLI
+-  GitHub Copilot
+-  Google Antigravity
 
 </details>
 

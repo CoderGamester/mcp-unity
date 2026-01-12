@@ -118,6 +118,18 @@ MCP Unity 通过将 Unity `Library/PackedCache` 文件夹添加到您的工作�
 - `reparent_gameobject`: 更改层次结构中 GameObject 的父级
   > **示例提示:** "将 HealthBar 对象移动为 UI Canvas 的子对象"
 
+- `move_gameobject`: 将 GameObject 移动到新位置（本地或世界空间）
+  > **示例提示:** "将 Player 对象移动到世界空间位置 (10, 0, 5)"
+
+- `rotate_gameobject`: 将 GameObject 旋转到新角度（本地或世界空间，欧拉角或四元数）
+  > **示例提示:** "将 Camera 沿 Y 轴旋转 45 度"
+
+- `scale_gameobject`: 将 GameObject 缩放到新的本地比例
+  > **示例提示:** "将 Enemy 对象放大到两倍大小"
+
+- `set_transform`: 在单个操作中设置 GameObject 的位置、旋转和缩放
+  > **示例提示:** "将 Cube 的位置设置为 (0, 5, 0)，旋转为 (0, 90, 0)，缩放为 (2, 2, 2)"
+
 - `create_material`: 使用指定的着色器创建新材质并保存到项目中
   > **示例提示:** "使用 URP Lit 着色器创建一个名为 'EnemyMaterial' 的红色材质"
 
@@ -426,10 +438,13 @@ MCP Unity 为开发人员、美术和项目经理提供了多个优势：
 <summary><span style="font-size: 1.1em; font-weight: bold;">当前哪些 MCP 主机和 IDE 支持 MCP Unity？</span></summary>
 
 已知兼容的平台包括：
--  Windsurf
 -  Cursor
--  GitHub Copilot
+-  Windsurf
 -  Claude Desktop
+-  Claude Code
+-  Codex CLI
+-  GitHub Copilot
+-  Google Antigravity
 
 </details>
 

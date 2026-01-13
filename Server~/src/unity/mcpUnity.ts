@@ -4,6 +4,7 @@ import { McpUnityError, ErrorType } from '../utils/errors.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { UnityConnection, ConnectionState, ConnectionStateChange, UnityConnectionConfig } from './unityConnection.js';
+import { CommandQueue, CommandQueueConfig, CommandQueueStats, QueuedCommand } from './commandQueue.js';
 
 // Top-level constant for the Unity settings JSON path
 const MCP_UNITY_SETTINGS_PATH = path.resolve(process.cwd(), '../ProjectSettings/McpUnitySettings.json');
@@ -38,6 +39,27 @@ export type ConnectionStateCallback = (change: ConnectionStateChange) => void;
 
 // Re-export connection types for consumers
 export { ConnectionState, type ConnectionStateChange } from './unityConnection.js';
+export { type CommandQueueConfig, type CommandQueueStats } from './commandQueue.js';
+
+/**
+ * Options for sending a request
+ */
+export interface SendRequestOptions {
+  /** If true, queue the command when disconnected instead of failing immediately (default: uses queueingEnabled setting) */
+  queueIfDisconnected?: boolean;
+  /** Custom timeout for this request in milliseconds */
+  timeout?: number;
+}
+
+/**
+ * Configuration for McpUnity
+ */
+export interface McpUnityConfig {
+  /** Command queue configuration */
+  queue?: CommandQueueConfig;
+  /** Whether command queuing is enabled by default (default: true) */
+  queueingEnabled?: boolean;
+}
 
 export class McpUnity {
   private logger: Logger;
@@ -52,8 +74,46 @@ export class McpUnity {
   // Connection state listeners
   private stateListeners: Set<ConnectionStateCallback> = new Set();
 
-  constructor(logger: Logger) {
+  // Command queue for handling commands during disconnection
+  private commandQueue: CommandQueue;
+  private queueingEnabled: boolean;
+
+  // Flag to track if we're currently replaying queued commands
+  private isReplayingQueue: boolean = false;
+
+  constructor(logger: Logger, config?: McpUnityConfig) {
     this.logger = logger;
+    this.commandQueue = new CommandQueue(logger, config?.queue);
+    this.queueingEnabled = config?.queueingEnabled ?? true;
+  }
+
+  /**
+   * Enable or disable command queuing
+   */
+  public setQueueingEnabled(enabled: boolean): void {
+    this.queueingEnabled = enabled;
+    this.logger.info(`Command queuing ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Check if command queuing is enabled
+   */
+  public get isQueueingEnabled(): boolean {
+    return this.queueingEnabled;
+  }
+
+  /**
+   * Get command queue statistics
+   */
+  public getQueueStats(): CommandQueueStats {
+    return this.commandQueue.getStats();
+  }
+
+  /**
+   * Get number of commands currently queued
+   */
+  public get queuedCommandCount(): number {
+    return this.commandQueue.size;
   }
 
   /**
@@ -144,12 +204,55 @@ export class McpUnity {
     }
 
     // Handle specific state transitions
-    if (change.currentState === ConnectionState.Disconnected) {
+    if (change.currentState === ConnectionState.Connected &&
+        (change.previousState === ConnectionState.Reconnecting ||
+         change.previousState === ConnectionState.Connecting)) {
+      // Connection restored - replay queued commands
+      this.replayQueuedCommands();
+    } else if (change.currentState === ConnectionState.Disconnected) {
+      // Clear the queue when we're fully disconnected (not reconnecting)
+      // This happens when max reconnection attempts are reached
+      if (change.reason?.includes('Max reconnection attempts')) {
+        this.commandQueue.clear(change.reason);
+      }
       // Reject all pending requests when disconnected
       this.rejectAllPendingRequests(
         new McpUnityError(ErrorType.CONNECTION, change.reason || 'Connection lost')
       );
     }
+  }
+
+  /**
+   * Replay queued commands after connection is restored
+   */
+  private async replayQueuedCommands(): Promise<void> {
+    if (this.isReplayingQueue) {
+      this.logger.debug('Already replaying queue, skipping');
+      return;
+    }
+
+    const commands = this.commandQueue.drain();
+
+    if (commands.length === 0) {
+      return;
+    }
+
+    this.isReplayingQueue = true;
+    this.logger.info(`Replaying ${commands.length} queued commands`);
+
+    for (const command of commands) {
+      try {
+        // Send the command directly using internal method
+        const result = await this.sendRequestInternal(command.request, command.timeout);
+        command.resolve(result);
+        this.commandQueue.recordReplaySuccess();
+      } catch (error) {
+        command.reject(error);
+      }
+    }
+
+    this.isReplayingQueue = false;
+    this.logger.info(`Finished replaying queued commands (${this.commandQueue.getStats().replayedCount} successful)`);
   }
 
   /**
@@ -191,9 +294,12 @@ export class McpUnity {
   }
 
   /**
-   * Stop the Unity connection
+   * Stop the Unity connection and clean up resources
    */
   public async stop(): Promise<void> {
+    // Dispose the command queue
+    this.commandQueue.dispose();
+
     if (this.connection) {
       this.connection.disconnect('Server stopping');
       this.connection.removeAllListeners();
@@ -206,27 +312,109 @@ export class McpUnity {
 
   /**
    * Send a request to the Unity server
+   * @param request The request to send
+   * @param options Optional settings for the request
    */
-  public async sendRequest(request: UnityRequest): Promise<any> {
-    // Ensure we're connected first
-    if (!this.isConnected) {
-      if (!this.connection) {
-        throw new McpUnityError(ErrorType.CONNECTION, 'Not started - call start() first');
-      }
-
-      this.logger.info('Not connected to Unity, connecting first...');
-      await this.connection.connect();
-    }
-
-    // Use given id or generate a new one
+  public async sendRequest(request: UnityRequest, options: SendRequestOptions = {}): Promise<any> {
+    const { queueIfDisconnected = this.queueingEnabled, timeout } = options;
     const requestId = request.id as string || uuidv4();
     const message: UnityRequest = {
       ...request,
       id: requestId
     };
 
+    // If connected, send directly
+    if (this.isConnected) {
+      return this.sendRequestInternal(message, timeout);
+    }
+
+    // If not started, throw error
+    if (!this.connection) {
+      throw new McpUnityError(ErrorType.CONNECTION, 'Not started - call start() first');
+    }
+
+    // If reconnecting and queuing is enabled, queue the command
+    if (queueIfDisconnected && this.connectionState === ConnectionState.Reconnecting) {
+      this.logger.debug(`Queuing command ${requestId} (${request.method}) - reconnecting...`);
+
+      return new Promise((resolve, reject) => {
+        const result = this.commandQueue.enqueue({
+          id: requestId,
+          request: message,
+          resolve,
+          reject,
+          timeout
+        });
+
+        if (result.success) {
+          this.logger.info(`Command ${requestId} queued at position ${result.position}`);
+        }
+        // If queuing failed, the command was already rejected by the queue
+      });
+    }
+
+    // If connecting and queuing is enabled, queue the command
+    if (queueIfDisconnected && this.connectionState === ConnectionState.Connecting) {
+      this.logger.debug(`Queuing command ${requestId} (${request.method}) - connecting...`);
+
+      return new Promise((resolve, reject) => {
+        const result = this.commandQueue.enqueue({
+          id: requestId,
+          request: message,
+          resolve,
+          reject,
+          timeout
+        });
+
+        if (result.success) {
+          this.logger.info(`Command ${requestId} queued at position ${result.position}`);
+        }
+      });
+    }
+
+    // Not connected - try to connect first
+    this.logger.info('Not connected to Unity, connecting first...');
+
+    try {
+      await this.connection.connect();
+      // Connection successful, send the request
+      return this.sendRequestInternal(message, timeout);
+    } catch (error) {
+      // Connection failed - if queuing is enabled, queue the command
+      if (queueIfDisconnected) {
+        this.logger.debug(`Queuing command ${requestId} (${request.method}) - connection failed, will retry`);
+
+        return new Promise((resolve, reject) => {
+          const result = this.commandQueue.enqueue({
+            id: requestId,
+            request: message,
+            resolve,
+            reject,
+            timeout
+          });
+
+          if (result.success) {
+            this.logger.info(`Command ${requestId} queued at position ${result.position}, waiting for reconnection`);
+          }
+        });
+      }
+
+      throw new McpUnityError(
+        ErrorType.CONNECTION,
+        `Not connected to Unity: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Internal method to send a request directly to Unity
+   * Bypasses queuing logic - assumes connection is already established
+   */
+  private sendRequestInternal(request: UnityRequest, customTimeout?: number): Promise<any> {
+    const requestId = request.id as string;
+    const timeoutMs = customTimeout ?? this.requestTimeout;
+
     return new Promise((resolve, reject) => {
-      // Double check isConnected again after await
       if (!this.connection || !this.isConnected) {
         reject(new McpUnityError(ErrorType.CONNECTION, 'Not connected to Unity'));
         return;
@@ -235,7 +423,7 @@ export class McpUnity {
       // Create timeout for the request
       const timeout = setTimeout(() => {
         if (this.pendingRequests.has(requestId)) {
-          this.logger.error(`Request ${requestId} timed out after ${this.requestTimeout}ms`);
+          this.logger.error(`Request ${requestId} timed out after ${timeoutMs}ms`);
           this.pendingRequests.delete(requestId);
           reject(new McpUnityError(ErrorType.TIMEOUT, 'Request timed out'));
 
@@ -244,7 +432,7 @@ export class McpUnity {
             this.connection.forceReconnect();
           }
         }
-      }, this.requestTimeout);
+      }, timeoutMs);
 
       // Store pending request
       this.pendingRequests.set(requestId, {
@@ -254,7 +442,7 @@ export class McpUnity {
       });
 
       try {
-        this.connection.send(JSON.stringify(message));
+        this.connection.send(JSON.stringify(request));
         this.logger.debug(`Request sent: ${requestId}`);
       } catch (err) {
         clearTimeout(timeout);

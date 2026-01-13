@@ -22,6 +22,7 @@ import { registerUnloadSceneTool } from './tools/unloadSceneTool.js';
 import { registerRecompileScriptsTool } from './tools/recompileScriptsTool.js';
 import { registerGetGameObjectTool } from './tools/getGameObjectTool.js';
 import { registerTransformTools } from './tools/transformTools.js';
+import { registerCreateMaterialTool, registerAssignMaterialTool, registerModifyMaterialTool, registerGetMaterialInfoTool } from './tools/materialTools.js';
 import { registerDuplicateGameObjectTool, registerDeleteGameObjectTool, registerReparentGameObjectTool } from './tools/gameObjectTools.js';
 import { registerGetMenuItemsResource } from './resources/getMenuItemResource.js';
 import { registerGetConsoleLogsResource } from './resources/getConsoleLogsResource.js';
@@ -79,6 +80,12 @@ registerTransformTools(server, mcpUnity, toolLogger);
 registerDuplicateGameObjectTool(server, mcpUnity, toolLogger);
 registerDeleteGameObjectTool(server, mcpUnity, toolLogger);
 registerReparentGameObjectTool(server, mcpUnity, toolLogger);
+
+// Register Material Tools
+registerCreateMaterialTool(server, mcpUnity, toolLogger);
+registerAssignMaterialTool(server, mcpUnity, toolLogger);
+registerModifyMaterialTool(server, mcpUnity, toolLogger);
+registerGetMaterialInfoTool(server, mcpUnity, toolLogger);
 
 // Register all resources into the MCP server
 registerGetTestsResource(server, mcpUnity, resourceLogger);

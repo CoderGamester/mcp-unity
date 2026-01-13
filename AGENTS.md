@@ -118,6 +118,42 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
   - MCP registry `server.json` (`version` + npm identifier/version)
 - Rebuild Node output: `cd Server~ && npm run build`
 
+### Available tools (current)
+- `execute_menu_item` — Execute Unity menu items
+- `select_gameobject` — Select GameObjects in hierarchy
+- `update_gameobject` — Update or create GameObject properties
+- `update_component` — Update or add components on GameObjects
+- `add_package` — Install packages via Package Manager
+- `run_tests` — Run Unity Test Runner tests
+- `send_console_log` — Send logs to Unity console
+- `add_asset_to_scene` — Add assets to scene
+- `create_prefab` — Create prefabs with optional scripts
+- `create_scene` — Create and save new scenes
+- `load_scene` — Load scenes (single or additive)
+- `delete_scene` — Delete scenes and remove from Build Settings
+- `save_scene` — Save current scene (with optional Save As)
+- `get_scene_info` — Get active scene info and loaded scenes list
+- `unload_scene` — Unload scene from hierarchy
+- `get_gameobject` — Get detailed GameObject info
+- `get_console_logs` — Retrieve Unity console logs
+- `recompile_scripts` — Recompile all project scripts
+- `duplicate_gameobject` — Duplicate GameObjects with optional rename/reparent
+- `delete_gameobject` — Delete GameObjects from scene
+- `reparent_gameobject` — Change GameObject parent in hierarchy
+- `create_material` — Create materials with specified shader
+- `assign_material` — Assign materials to Renderer components
+- `modify_material` — Modify material properties (colors, floats, textures)
+- `get_material_info` — Get material details including all properties
+
+### Available resources (current)
+- `unity://menu-items` — List of available menu items
+- `unity://scenes-hierarchy` — Current scene hierarchy
+- `unity://gameobject/{id}` — GameObject details by ID or path
+- `unity://logs` — Unity console logs
+- `unity://packages` — Installed and available packages
+- `unity://assets` — Asset database information
+- `unity://tests/{testMode}` — Test Runner test information
+
 ### Update policy (for agents)
 - Update this file when:
   - tools/resources/prompts are added/removed/renamed,

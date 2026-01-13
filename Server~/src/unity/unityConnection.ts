@@ -14,6 +14,15 @@ export enum ConnectionState {
 }
 
 /**
+ * Custom WebSocket close codes for Unity-specific events
+ * Range 4000-4999 is reserved for application use
+ */
+export const UnityCloseCode = {
+  /** Unity is entering Play mode - use fast polling instead of backoff */
+  PLAY_MODE: 4001
+} as const;
+
+/**
  * Connection state change event data
  */
 export interface ConnectionStateChange {
@@ -41,6 +50,9 @@ export interface UnityConnectionConfig {
   // Heartbeat settings
   heartbeatInterval?: number;      // Default: 30000ms (30 seconds)
   heartbeatTimeout?: number;       // Default: 5000ms (5 seconds)
+
+  // Play mode settings
+  playModePollingInterval?: number; // Default: 3000ms (3 seconds) - used instead of backoff during Play mode
 }
 
 /**
@@ -52,7 +64,8 @@ const DEFAULT_CONFIG = {
   reconnectBackoffMultiplier: 2,
   maxReconnectAttempts: -1,  // Unlimited
   heartbeatInterval: 30000,
-  heartbeatTimeout: 5000
+  heartbeatTimeout: 5000,
+  playModePollingInterval: 3000  // Fixed 3 second polling during Play mode
 };
 
 /**
@@ -74,6 +87,7 @@ export class UnityConnection extends EventEmitter {
   private reconnectAttempt: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isManualDisconnect: boolean = false;
+  private isPlayModeReconnect: boolean = false;  // True when reconnecting due to Unity Play mode
 
   // Heartbeat state
   private heartbeatTimer: NodeJS.Timeout | null = null;
@@ -227,6 +241,7 @@ export class UnityConnection extends EventEmitter {
 
         // Reset reconnection state on successful connection
         this.reconnectAttempt = 0;
+        this.isPlayModeReconnect = false;  // Clear Play mode flag
         this.lastPongTime = Date.now();
 
         this.setState(ConnectionState.Connected, 'Connection established');
@@ -255,6 +270,12 @@ export class UnityConnection extends EventEmitter {
 
         const reason = event.reason || `Code: ${event.code}`;
         this.logger.debug(`WebSocket closed: ${reason}`);
+
+        // Check if Unity is entering Play mode (custom close code 4001)
+        if (event.code === UnityCloseCode.PLAY_MODE) {
+          this.logger.info('Unity entering Play mode - using fast polling for reconnection');
+          this.isPlayModeReconnect = true;
+        }
 
         // Clear WebSocket reference
         this.ws = null;
@@ -288,8 +309,9 @@ export class UnityConnection extends EventEmitter {
       return;
     }
 
-    // Check max reconnect attempts
-    if (this.config.maxReconnectAttempts !== -1 &&
+    // Check max reconnect attempts (skip for Play mode - unlimited retries)
+    if (!this.isPlayModeReconnect &&
+        this.config.maxReconnectAttempts !== -1 &&
         this.reconnectAttempt >= this.config.maxReconnectAttempts) {
       this.logger.error(`Max reconnection attempts (${this.config.maxReconnectAttempts}) reached`);
       this.setState(ConnectionState.Disconnected, 'Max reconnection attempts reached');
@@ -297,12 +319,16 @@ export class UnityConnection extends EventEmitter {
       return;
     }
 
-    // Calculate backoff delay
-    const delay = this.calculateBackoffDelay();
+    // Use fixed polling interval for Play mode, exponential backoff otherwise
+    const delay = this.isPlayModeReconnect
+      ? this.config.playModePollingInterval
+      : this.calculateBackoffDelay();
+
     this.reconnectAttempt++;
 
-    this.logger.info(`Scheduling reconnection attempt ${this.reconnectAttempt} in ${delay}ms`);
-    this.setState(ConnectionState.Reconnecting, `Waiting ${delay}ms before attempt ${this.reconnectAttempt}`);
+    const modeInfo = this.isPlayModeReconnect ? ' (Play mode polling)' : '';
+    this.logger.info(`Scheduling reconnection attempt ${this.reconnectAttempt} in ${delay}ms${modeInfo}`);
+    this.setState(ConnectionState.Reconnecting, `Waiting ${delay}ms before attempt ${this.reconnectAttempt}${modeInfo}`);
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

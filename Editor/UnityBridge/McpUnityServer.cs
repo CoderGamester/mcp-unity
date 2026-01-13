@@ -14,6 +14,18 @@ using UnityEditor.Callbacks;
 namespace McpUnity.Unity
 {
     /// <summary>
+    /// Custom WebSocket close codes for Unity-specific events.
+    /// Range 4000-4999 is reserved for application use.
+    /// </summary>
+    public static class UnityCloseCode
+    {
+        /// <summary>
+        /// Unity is entering Play mode - clients should use fast polling instead of backoff
+        /// </summary>
+        public const ushort PlayMode = 4001;
+    }
+
+    /// <summary>
     /// MCP Unity Server to communicate Node.js MCP server.
     /// Uses WebSockets to communicate with Node.js.
     /// </summary>
@@ -21,10 +33,10 @@ namespace McpUnity.Unity
     public class McpUnityServer : IDisposable
     {
         private static McpUnityServer _instance;
-        
+
         private readonly Dictionary<string, McpToolBase> _tools = new Dictionary<string, McpToolBase>();
         private readonly Dictionary<string, McpResourceBase> _resources = new Dictionary<string, McpResourceBase>();
-        
+
         private WebSocketServer _webSocketServer;
         private CancellationTokenSource _cts;
         private TestRunnerService _testRunnerService;
@@ -143,7 +155,9 @@ namespace McpUnity.Unity
         /// <summary>
         /// Stop the WebSocket server
         /// </summary>
-        public void StopServer()
+        /// <param name="closeCode">Optional custom close code to send to clients before stopping</param>
+        /// <param name="closeReason">Optional reason message for the close</param>
+        public void StopServer(ushort? closeCode = null, string closeReason = null)
         {
             if (!IsListening)
             {
@@ -152,8 +166,14 @@ namespace McpUnity.Unity
 
             try
             {
-                _webSocketServer?.Stop(); 
-                
+                // If a custom close code is provided, close all client connections with that code first
+                if (closeCode.HasValue && _webSocketServer != null)
+                {
+                    CloseAllClients(closeCode.Value, closeReason ?? "Server stopping");
+                }
+
+                _webSocketServer?.Stop();
+
                 McpLogger.LogInfo("WebSocket server stopped");
             }
             catch (Exception ex)
@@ -162,9 +182,41 @@ namespace McpUnity.Unity
             }
             finally
             {
-                _webSocketServer = null; 
-                Clients.Clear(); 
+                _webSocketServer = null;
+                Clients.Clear();
                 McpLogger.LogInfo("WebSocket server stopped and resources cleaned up.");
+            }
+        }
+
+        /// <summary>
+        /// Close all connected clients with a specific close code
+        /// </summary>
+        /// <param name="closeCode">WebSocket close code (4000-4999 for application use)</param>
+        /// <param name="reason">Reason message for the close</param>
+        private void CloseAllClients(ushort closeCode, string reason)
+        {
+            if (_webSocketServer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var service = _webSocketServer.WebSocketServices["/McpUnity"];
+                if (service?.Sessions != null)
+                {
+                    // Get all active session IDs and close each with the custom code
+                    var sessionIds = new List<string>(service.Sessions.IDs);
+                    foreach (var sessionId in sessionIds)
+                    {
+                        service.Sessions.CloseSession(sessionId, closeCode, reason);
+                    }
+                    McpLogger.LogInfo($"Closed {sessionIds.Count} client connection(s) with code {closeCode}: {reason}");
+                }
+            }
+            catch (Exception ex)
+            {
+                McpLogger.LogError($"Error closing client connections: {ex.Message}");
             }
         }
         
@@ -420,10 +472,10 @@ namespace McpUnity.Unity
             switch (state)
             {
                 case PlayModeStateChange.ExitingEditMode:
-                    // About to enter Play Mode
+                    // About to enter Play Mode - use custom close code so clients use fast polling
                     if (Instance.IsListening)
                     {
-                        Instance.StopServer();
+                        Instance.StopServer(UnityCloseCode.PlayMode, "Unity entering Play mode");
                     }
                     break;
                 case PlayModeStateChange.EnteredPlayMode:

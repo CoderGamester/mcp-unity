@@ -80,10 +80,7 @@ namespace McpUnity.Tools
 
                     if (stopOnError)
                     {
-                        if (atomic && undoGroup >= 0)
-                        {
-                            Undo.RevertAllDownToGroup(undoGroup);
-                        }
+                        RevertIfAtomic(atomic, undoGroup);
                         break;
                     }
                     continue;
@@ -101,10 +98,7 @@ namespace McpUnity.Tools
 
                     if (stopOnError)
                     {
-                        if (atomic && undoGroup >= 0)
-                        {
-                            Undo.RevertAllDownToGroup(undoGroup);
-                        }
+                        RevertIfAtomic(atomic, undoGroup);
                         break;
                     }
                     continue;
@@ -118,10 +112,7 @@ namespace McpUnity.Tools
 
                     if (stopOnError)
                     {
-                        if (atomic && undoGroup >= 0)
-                        {
-                            Undo.RevertAllDownToGroup(undoGroup);
-                        }
+                        RevertIfAtomic(atomic, undoGroup);
                         break;
                     }
                     continue;
@@ -135,10 +126,7 @@ namespace McpUnity.Tools
 
                     if (stopOnError)
                     {
-                        if (atomic && undoGroup >= 0)
-                        {
-                            Undo.RevertAllDownToGroup(undoGroup);
-                        }
+                        RevertIfAtomic(atomic, undoGroup);
                         break;
                     }
                     continue;
@@ -199,10 +187,7 @@ namespace McpUnity.Tools
 
                     if (stopOnError)
                     {
-                        if (atomic && undoGroup >= 0)
-                        {
-                            Undo.RevertAllDownToGroup(undoGroup);
-                        }
+                        RevertIfAtomic(atomic, undoGroup);
                         break;
                     }
                 }
@@ -227,10 +212,7 @@ namespace McpUnity.Tools
 
                         if (stopOnError)
                         {
-                            if (atomic && undoGroup >= 0)
-                            {
-                                Undo.RevertAllDownToGroup(undoGroup);
-                            }
+                            RevertIfAtomic(atomic, undoGroup);
                             break;
                         }
                     }
@@ -242,10 +224,7 @@ namespace McpUnity.Tools
 
                     if (stopOnError)
                     {
-                        if (atomic && undoGroup >= 0)
-                        {
-                            Undo.RevertAllDownToGroup(undoGroup);
-                        }
+                        RevertIfAtomic(atomic, undoGroup);
                         break;
                     }
                 }
@@ -293,6 +272,14 @@ namespace McpUnity.Tools
                     ["executed"] = succeeded + failed
                 }
             });
+        }
+
+        private void RevertIfAtomic(bool atomic, int undoGroup)
+        {
+            if (atomic && undoGroup >= 0)
+            {
+                Undo.RevertAllDownToGroup(undoGroup);
+            }
         }
 
         private JObject CreateOperationResult(int index, string id, bool success, JObject result, string error)

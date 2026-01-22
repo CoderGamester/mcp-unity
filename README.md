@@ -144,6 +144,9 @@ The following tools are available for manipulating and querying Unity scenes and
 - `get_material_info`: Gets detailed information about a material including shader and all properties
   > **Example prompt:** "Show me all the properties of the 'PlayerMaterial'"
 
+- `batch_execute`: Executes multiple tool operations in a single batch request, reducing round-trips and enabling atomic operations with optional rollback on failure
+  > **Example prompt:** "Create 10 empty GameObjects named Enemy_1 through Enemy_10 in a single batch operation"
+
 ### MCP Server Resources
 
 - `unity://menu-items`: Retrieves a list of all available menu items in the Unity Editor to facilitate `execute_menu_item` tool

@@ -24,6 +24,7 @@ import { registerGetGameObjectTool } from './tools/getGameObjectTool.js';
 import { registerTransformTools } from './tools/transformTools.js';
 import { registerCreateMaterialTool, registerAssignMaterialTool, registerModifyMaterialTool, registerGetMaterialInfoTool } from './tools/materialTools.js';
 import { registerDuplicateGameObjectTool, registerDeleteGameObjectTool, registerReparentGameObjectTool } from './tools/gameObjectTools.js';
+import { registerBatchExecuteTool } from './tools/batchExecuteTool.js';
 import { registerGetMenuItemsResource } from './resources/getMenuItemResource.js';
 import { registerGetConsoleLogsResource } from './resources/getConsoleLogsResource.js';
 import { registerGetHierarchyResource } from './resources/getScenesHierarchyResource.js';
@@ -86,6 +87,9 @@ registerCreateMaterialTool(server, mcpUnity, toolLogger);
 registerAssignMaterialTool(server, mcpUnity, toolLogger);
 registerModifyMaterialTool(server, mcpUnity, toolLogger);
 registerGetMaterialInfoTool(server, mcpUnity, toolLogger);
+
+// Register Batch Execute Tool (high-priority for performance)
+registerBatchExecuteTool(server, mcpUnity, toolLogger);
 
 // Register all resources into the MCP server
 registerGetTestsResource(server, mcpUnity, resourceLogger);

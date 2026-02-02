@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Reflection;
 using McpUnity.Unity;
 using UnityEngine;
 using UnityEditor;
@@ -17,6 +18,10 @@ namespace McpUnity.Utils
     /// </summary>
     public static class McpUtils
     {
+
+        // Cached result for Multiplayer Play Mode clone detection
+        private static bool? _isMultiplayerPlayModeClone;
+        
         /// <summary>
         /// Generates the MCP configuration JSON to setup the Unity MCP server in different AI Clients
         /// </summary>
@@ -35,13 +40,13 @@ namespace McpUnity.Utils
                     }
                 }
             };
-            
+
             // Initialize string writer with proper indentation
             var stringWriter = new StringWriter();
             using (var jsonWriter = new JsonTextWriter(stringWriter))
             {
                 jsonWriter.Formatting = Formatting.Indented;
-                
+
                 // Set indentation character and count
                 if (useTabsIndentation)
                 {
@@ -53,12 +58,12 @@ namespace McpUnity.Utils
                     jsonWriter.IndentChar = ' ';
                     jsonWriter.Indentation = 2;
                 }
-                
+
                 // Serialize directly to the JsonTextWriter
                 var serializer = new JsonSerializer();
                 serializer.Serialize(jsonWriter, config);
             }
-            
+
             return stringWriter.ToString().Replace("\\", "/").Replace("//", "/");
         }
 
@@ -743,6 +748,124 @@ namespace McpUnity.Utils
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Detects if the current Unity Editor instance is a Multiplayer Play Mode clone (additional editor).
+        /// Uses multiple detection methods in order of reliability:
+        /// 1. Command line arguments (-name Player2/3/4 indicates clone)
+        /// 2. Reflection on CurrentPlayer.IsMainEditor property
+        /// 3. Library path heuristics
+        /// Returns false if not a clone or detection fails (allowing normal operation).
+        /// </summary>
+        /// <returns>True if running as a clone instance, false if main editor or detection fails</returns>
+        public static bool IsMultiplayerPlayModeClone()
+        {
+            // Return cached result if available
+            if (_isMultiplayerPlayModeClone.HasValue)
+            {
+                return _isMultiplayerPlayModeClone.Value;
+            }
+
+            try
+            {
+                // Method 1: Check command line arguments (most reliable)
+                // Unity MPPM passes "-name PlayerX" where X > 1 for clones
+                string[] args = Environment.GetCommandLineArgs();
+                for (int i = 0; i < args.Length - 1; i++)
+                {
+                    if (args[i] == "-name" || args[i] == "--name")
+                    {
+                        string playerName = args[i + 1];
+                        // Player1 is the main editor, Player2/3/4 are clones
+                        if (playerName.StartsWith("Player") && playerName != "Player1")
+                        {
+                            _isMultiplayerPlayModeClone = true;
+                            return true;
+                        }
+                        // Found -name argument but it's Player1 (main editor)
+                        if (playerName == "Player1")
+                        {
+                            _isMultiplayerPlayModeClone = false;
+                            return false;
+                        }
+                    }
+                }
+
+                // Method 2: Check for MPPM-specific command line flags
+                foreach (string arg in args)
+                {
+                    // Check for clone-specific flags that Unity might pass
+                    if (arg.Contains("mppm") && arg.Contains("clone"))
+                    {
+                        _isMultiplayerPlayModeClone = true;
+                        return true;
+                    }
+                }
+
+                // Method 3: Try reflection on CurrentPlayer.IsMainEditor (MPPM 1.4+)
+                Assembly mppmAssembly = null;
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    string assemblyName = assembly.GetName().Name;
+                    if (assemblyName == "Unity.Multiplayer.Playmode" || 
+                        assemblyName == "Unity.Multiplayer.Playmode.Editor")
+                    {
+                        mppmAssembly = assembly;
+                        break;
+                    }
+                }
+
+                if (mppmAssembly != null)
+                {
+                    // Try to find CurrentPlayer class
+                    Type currentPlayerType = mppmAssembly.GetType("Unity.Multiplayer.Playmode.CurrentPlayer");
+                    if (currentPlayerType != null)
+                    {
+                        // Try IsMainEditor property
+                        PropertyInfo isMainEditorProperty = currentPlayerType.GetProperty(
+                            "IsMainEditor", 
+                            BindingFlags.Public | BindingFlags.Static);
+                        
+                        if (isMainEditorProperty != null)
+                        {
+                            bool isMainEditor = (bool)isMainEditorProperty.GetValue(null);
+                            _isMultiplayerPlayModeClone = !isMainEditor;
+                            return !isMainEditor;
+                        }
+                    }
+                }
+
+                // Method 4: Check if Unity's Library path indicates a VP (Virtual Player) subfolder
+                // Clone instances may use a modified library path
+                string libraryPath = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Library"));
+                if (libraryPath.Contains("VP") && libraryPath.Contains("Library"))
+                {
+                    // Looks like we're in a virtual player's library folder
+                    _isMultiplayerPlayModeClone = true;
+                    return true;
+                }
+
+                // Default: not a clone (or couldn't detect MPPM)
+                _isMultiplayerPlayModeClone = false;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // On any error, assume not a clone to avoid breaking functionality
+                Debug.LogWarning($"[MCP Unity] Error detecting Multiplayer Play Mode clone status: {ex.Message}");
+                _isMultiplayerPlayModeClone = false;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Resets the cached Multiplayer Play Mode clone detection result.
+        /// Useful for testing or when the state might have changed.
+        /// </summary>
+        public static void ResetMultiplayerPlayModeCloneCache()
+        {
+            _isMultiplayerPlayModeClone = null;
         }
     }
 }

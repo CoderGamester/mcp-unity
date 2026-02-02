@@ -110,6 +110,7 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
 - **Long main-thread work**: synchronous `Execute()` blocks the Unity editor; use async patterns for heavy operations.
 - **Remote connections**: Unity must bind `0.0.0.0` (`AllowRemoteConnections=true`) and Node must target the correct host (`UNITY_HOST`).
 - **Unity domain reload**: the server stops during script reloads and may restart; avoid relying on persistent in-memory state across reloads.
+- **Multiplayer Play Mode**: Clone instances automatically skip server startup; only the main editor hosts the MCP server.
 
 ### Release/version bump checklist
 - Update versions consistently:

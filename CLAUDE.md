@@ -115,6 +115,7 @@ Same pattern as tools:
 - **Long main-thread work**: Synchronous `Execute()` blocks Unity; use `IsAsync = true` with `ExecuteAsync()` for long operations
 - **Unity domain reload**: Server stops during script reloads; avoid persistent in-memory state
 - **Port conflicts**: Default is 8090; check if another process is using it
+- **Multiplayer Play Mode**: Clone instances auto-skip server startup; only main editor hosts MCP
 
 ## Code Conventions
 

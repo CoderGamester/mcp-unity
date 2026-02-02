@@ -127,6 +127,14 @@ namespace McpUnity.Unity
         /// </summary>
         public void StartServer()
         {
+            // Skip starting server if this is a Multiplayer Play Mode clone instance
+            // Only the main editor should run the WebSocket server to avoid port conflicts
+            if (McpUtils.IsMultiplayerPlayModeClone())
+            {
+                McpLogger.LogInfo("Server startup skipped: Running as Multiplayer Play Mode clone instance. Only the main editor runs the MCP server.");
+                return;
+            }
+
             if (IsListening)
             {
                 McpLogger.LogInfo($"Server start requested, but already listening on port {McpUnitySettings.Instance.Port}.");

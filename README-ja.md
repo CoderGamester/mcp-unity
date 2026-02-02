@@ -142,6 +142,9 @@ MCP Unityは、Unityの`Library/PackedCache`フォルダーをワークスペー
 - `get_material_info`: シェーダーとすべてのプロパティを含むマテリアルの詳細情報を取得
   > **例:** "'PlayerMaterial'のすべてのプロパティを表示"
 
+- `batch_execute`: 単一のバッチリクエストで複数のツール操作を実行し、ラウンドトリップを削減しアトミック操作を可能にする（失敗時のロールバックオプション付き）
+  > **例:** "単一のバッチ操作でEnemy_1からEnemy_10という名前の10個の空のGameObjectを作成"
+
 ### MCPサーバーリソース
 
 - `unity://menu-items`: `execute_menu_item`ツールを容易にするために、Unityエディターで利用可能なすべてのメニュー項目のリストを取得

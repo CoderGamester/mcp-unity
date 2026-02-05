@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using UnityEditor;
+using UnityEngine;
 using McpUnity.Tools;
 using McpUnity.Resources;
 using McpUnity.Services;
@@ -48,17 +49,30 @@ namespace McpUnity.Unity
         [DidReloadScripts]
         private static void AfterReload()
         {
+            // Skip initialization in batch mode (Unity Cloud Build, CI, headless builds)
+            // This prevents npm commands from hanging the build process
+            if (Application.isBatchMode)
+            {
+                return;
+            }
+            
             // Ensure Instance is created and hooks are set up after initial domain load
             var currentInstance = Instance;
         }
         
         /// <summary>
-        /// Singleton instance accessor
+        /// Singleton instance accessor. Returns null in batch mode.
         /// </summary>
         public static McpUnityServer Instance
         {
             get
             {
+                // Don't create instance in batch mode to avoid hanging builds
+                if (Application.isBatchMode)
+                {
+                    return null;
+                }
+                
                 if (_instance == null)
                 {
                     _instance = new McpUnityServer();
@@ -82,6 +96,14 @@ namespace McpUnity.Unity
         /// </summary>
         private McpUnityServer()
         {
+            // Skip all initialization in batch mode (Unity Cloud Build, CI, headless builds)
+            // The npm install/build commands can hang indefinitely without node.js available
+            if (Application.isBatchMode)
+            {
+                McpLogger.LogInfo("MCP Unity server disabled: Running in batch mode (Unity Cloud Build or CI)");
+                return;
+            }
+            
             EditorApplication.quitting -= OnEditorQuitting; // Prevent multiple subscriptions on domain reload
             EditorApplication.quitting += OnEditorQuitting;
 
@@ -445,8 +467,10 @@ namespace McpUnity.Unity
         /// </summary>
         private static void OnEditorQuitting()
         {
+            if (Application.isBatchMode || _instance == null) return;
+            
             McpLogger.LogInfo("Editor is quitting. Ensuring server is stopped.");
-            Instance.Dispose();
+            _instance.Dispose();
         }
 
         /// <summary>
@@ -455,9 +479,11 @@ namespace McpUnity.Unity
         /// </summary>
         private static void OnBeforeAssemblyReload()
         {
-            if (Instance.IsListening)
+            if (Application.isBatchMode || _instance == null) return;
+            
+            if (_instance.IsListening)
             {
-                Instance.StopServer();
+                _instance.StopServer();
             }
         }
 
@@ -468,9 +494,11 @@ namespace McpUnity.Unity
         /// </summary>
         private static void OnAfterAssemblyReload()
         {
-            if (McpUnitySettings.Instance.AutoStartServer && !Instance.IsListening)
+            if (Application.isBatchMode || _instance == null) return;
+            
+            if (McpUnitySettings.Instance.AutoStartServer && !_instance.IsListening)
             {
-                Instance.StartServer();
+                _instance.StartServer();
             }
         }
 
@@ -481,13 +509,15 @@ namespace McpUnity.Unity
         /// <param name="state">The current play mode state change.</param>
         private static void OnPlayModeStateChanged(PlayModeStateChange state)
         {
+            if (Application.isBatchMode || _instance == null) return;
+            
             switch (state)
             {
                 case PlayModeStateChange.ExitingEditMode:
                     // About to enter Play Mode - use custom close code so clients use fast polling
-                    if (Instance.IsListening)
+                    if (_instance.IsListening)
                     {
-                        Instance.StopServer(UnityCloseCode.PlayMode, "Unity entering Play mode");
+                        _instance.StopServer(UnityCloseCode.PlayMode, "Unity entering Play mode");
                     }
                     break;
                 case PlayModeStateChange.EnteredPlayMode:
@@ -496,9 +526,9 @@ namespace McpUnity.Unity
                     break;
                 case PlayModeStateChange.EnteredEditMode:
                     // Returned to Edit Mode
-                    if (!Instance.IsListening && McpUnitySettings.Instance.AutoStartServer)
+                    if (!_instance.IsListening && McpUnitySettings.Instance.AutoStartServer)
                     {
-                        Instance.StartServer();
+                        _instance.StartServer();
                     }
                     break;
             }

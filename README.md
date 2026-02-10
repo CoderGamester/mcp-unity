@@ -147,6 +147,15 @@ The following tools are available for manipulating and querying Unity scenes and
 - `batch_execute`: Executes multiple tool operations in a single batch request, reducing round-trips and enabling atomic operations with optional rollback on failure
   > **Example prompt:** "Create 10 empty GameObjects named Enemy_1 through Enemy_10 in a single batch operation"
 
+### MCP App tools
+
+- `show_unity_dashboard`: Opens the Unity dashboard MCP App in VS Code (requires VS Code 1.109+)
+  > **Example prompt:** "Open the Unity dashboard app"
+
+- `get_play_mode_status`: Gets Unity play mode status (isPlaying, isPaused)
+  > **Example prompt:** "Is Unity in play mode?"
+
+
 ### MCP Server Resources
 
 - `unity://menu-items`: Retrieves a list of all available menu items in the Unity Editor to facilitate `execute_menu_item` tool
@@ -169,6 +178,9 @@ The following tools are available for manipulating and querying Unity scenes and
 
 - `unity://tests/{testMode}`: Retrieves information about tests in the Unity Test Runner
   > **Example prompt:** "List all available tests in my Unity project"
+
+- `unity://ui/dashboard`: Unity dashboard MCP App UI
+  > **Example prompt:** "Open the Unity dashboard app"
 
 ## Requirements
 - Unity 6 or later - to [install the server](#install-server)

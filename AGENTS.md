@@ -146,6 +146,9 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
 - `modify_material` — Modify material properties (colors, floats, textures)
 - `get_material_info` — Get material details including all properties
 
+### Available apps (current)
+- `show_unity_dashboard` — Open the Unity dashboard MCP App in VS Code
+
 ### Available resources (current)
 - `unity://menu-items` — List of available menu items
 - `unity://scenes-hierarchy` — Current scene hierarchy
@@ -154,6 +157,7 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
 - `unity://packages` — Installed and available packages
 - `unity://assets` — Asset database information
 - `unity://tests/{testMode}` — Test Runner test information
+- `unity://ui/dashboard` — Unity dashboard MCP App UI
 
 ### Update policy (for agents)
 - Update this file when:

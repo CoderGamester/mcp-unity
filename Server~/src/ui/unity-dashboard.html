@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Unity Dashboard</title>
+    <style>
+      :root{--bg:#0b1220;--card:#07101a;--muted:#9fb1c9;--accent:#4fd1c5}
+      html,body{height:100%;margin:0}
+      body{font-family:Inter,Segoe UI,Roboto,system-ui,Arial;background:linear-gradient(180deg,#071021 0%,#071627 100%);color:#e6eef8;padding:16px}
+      .app{max-width:1100px;margin:0 auto}
+      header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+      h1{font-size:18px;margin:0}
+      .controls{display:flex;gap:8px}
+      button{background:transparent;border:1px solid #163144;color:var(--muted);padding:8px 12px;border-radius:6px;cursor:pointer}
+      button.primary{background:var(--accent);color:#022; border-color:transparent}
+      .grid{display:grid;grid-template-columns:1fr 360px;gap:12px}
+      .card{background:var(--card);border:1px solid #122432;padding:12px;border-radius:8px}
+      .section-title{font-size:13px;color:var(--muted);margin-bottom:8px}
+      #hierarchy{max-height:560px;overflow:auto;font-size:13px}
+      .node{padding:6px 8px;border-radius:4px;color:#cfe6f8}
+      .node:hover{background:#0f2940}
+      .logs{max-height:560px;overflow:auto;font-family:monospace;font-size:12px}
+      .log.info{color:#9fc5ff}
+      .log.warn{color:#ffd580}
+      .log.error{color:#ff9b9b}
+      .meta{font-size:12px;color:var(--muted)}
+      .toolbar{display:flex;gap:8px;align-items:center}
+      label{font-size:12px;color:var(--muted)}
+      input[type=range]{width:120px}
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>Unity Dashboard</h1>
+        <div class="controls">
+          <div class="toolbar">
+            <button id="playBtn" title="Play">Play</button>
+            <button id="pauseBtn" title="Pause">Pause</button>
+            <button id="stepBtn" title="Step">Step</button>
+            <button id="refreshBtn" title="Refresh">Refresh</button>
+            <label class="meta"><input id="autoRefresh" type="checkbox"/> Auto</label>
+            <input id="interval" type="range" min="1" max="10" value="3" />
+            <span id="intervalLabel" class="meta">3s</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="grid">
+        <div>
+          <div class="card">
+            <div class="section-title">Scene</div>
+            <div id="sceneInfo" class="meta">Loading scene info…</div>
+          </div>
+
+          <div class="card" style="margin-top:12px">
+            <div class="section-title">Hierarchy</div>
+            <div id="hierarchy">Loading hierarchy…</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <div class="section-title">Play Mode</div>
+            <div id="playMode" class="meta">—</div>
+          </div>
+
+          <div class="card" style="margin-top:12px">
+            <div class="section-title">Console Logs</div>
+            <div id="logs" class="logs">Loading logs…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // MCP Apps bridge (JSON-RPC over postMessage)
+      // This follows @modelcontextprotocol/ext-apps (SEP-1865) expectations used by VS Code.
+      const PROTOCOL_VERSION = '2026-01-26';
+      let rpcId = 1;
+      const pending = new Map();
+
+      function isJsonRpcMessage(msg) {
+        return msg && msg.jsonrpc === '2.0' && (typeof msg.method === 'string' || typeof msg.id !== 'undefined');
+      }
+
+      function rpcNotify(method, params) {
+        window.parent.postMessage({ jsonrpc: '2.0', method, params }, '*');
+      }
+
+      function rpcRequest(method, params) {
+        const id = rpcId++;
+        const request = { jsonrpc: '2.0', id, method, params };
+        window.parent.postMessage(request, '*');
+        return new Promise((resolve, reject) => {
+          pending.set(id, { resolve, reject, method });
+          // Basic timeout to avoid hanging UI forever.
+          setTimeout(() => {
+            if (pending.has(id)) {
+              pending.delete(id);
+              reject(new Error(`Timed out waiting for ${method}`));
+            }
+          }, 15000);
+        });
+      }
+
+      async function initializeApp() {
+        await rpcRequest('ui/initialize', {
+          appInfo: { name: 'unity-dashboard', version: '1.0.0' },
+          appCapabilities: { tools: {} },
+          protocolVersion: PROTOCOL_VERSION,
+        });
+        rpcNotify('ui/notifications/initialized', {});
+      }
+
+      async function callTool(name, args = {}) {
+        const result = await rpcRequest('tools/call', { name, arguments: args });
+        return result;
+      }
+
+      // UI elements
+      const playBtn = document.getElementById('playBtn');
+      const pauseBtn = document.getElementById('pauseBtn');
+      const stepBtn = document.getElementById('stepBtn');
+      const refreshBtn = document.getElementById('refreshBtn');
+      const autoRefresh = document.getElementById('autoRefresh');
+      const interval = document.getElementById('interval');
+      const intervalLabel = document.getElementById('intervalLabel');
+      const sceneInfo = document.getElementById('sceneInfo');
+      const hierarchy = document.getElementById('hierarchy');
+      const logs = document.getElementById('logs');
+      const playMode = document.getElementById('playMode');
+
+      playBtn.onclick = () => callTool('execute_menu_item', { menuPath: 'Edit/Play' }).catch(() => {});
+      pauseBtn.onclick = () => callTool('execute_menu_item', { menuPath: 'Edit/Pause' }).catch(() => {});
+      stepBtn.onclick = () => callTool('execute_menu_item', { menuPath: 'Edit/Step' }).catch(() => {});
+      refreshBtn.onclick = fetchAll;
+
+      interval.oninput = () => { intervalLabel.textContent = interval.value + 's'; };
+
+      window.addEventListener('message', (ev) => {
+        const msg = ev.data;
+        if (!isJsonRpcMessage(msg)) return;
+
+        // Responses
+        if (typeof msg.id !== 'undefined') {
+          const entry = pending.get(msg.id);
+          if (!entry) return;
+          pending.delete(msg.id);
+          if (msg.error) entry.reject(new Error(msg.error.message || 'JSON-RPC error'));
+          else entry.resolve(msg.result);
+          return;
+        }
+
+        // Notifications from host (optional for this simple UI)
+        // e.g. ui/notifications/host-context-changed
+      });
+
+      function extractToolData(callToolResult) {
+        if (!callToolResult) return null;
+        if (callToolResult.data) return callToolResult.data;
+        // Fallback: try to parse JSON from first text block.
+        const first = (callToolResult.content || [])[0];
+        if (first && typeof first.text === 'string') {
+          try { return JSON.parse(first.text); } catch { return null; }
+        }
+        return null;
+      }
+
+      function updateScene(payload) {
+        if (!payload) return;
+        const active = payload.activeScene;
+        if (!active) return;
+        sceneInfo.textContent = `${active.name} — Root Count: ${active.rootCount} — ${active.isLoaded ? 'Loaded' : 'Not loaded'}`;
+      }
+
+      function renderHierarchy(list) {
+        if (!list || list.length === 0) { hierarchy.textContent = 'No scene data'; return; }
+        // Hierarchy comes back as an array of scenes, each with rootObjects.
+        hierarchy.innerHTML = '';
+        const ul = document.createElement('div');
+
+        list.forEach(scene => {
+          const sceneNode = document.createElement('div');
+          sceneNode.className = 'node';
+          sceneNode.textContent = scene.name || 'Scene';
+          ul.appendChild(sceneNode);
+
+          const rootObjects = scene.rootObjects || [];
+          rootObjects.forEach(root => {
+            const rootNode = document.createElement('div');
+            rootNode.className = 'node';
+            rootNode.style.paddingLeft = '22px';
+            rootNode.textContent = root.name || JSON.stringify(root);
+            ul.appendChild(rootNode);
+          });
+        });
+        hierarchy.appendChild(ul);
+      }
+
+      function updateLogs(payload) {
+        logs.innerHTML = '';
+        const items = payload && payload.logs ? payload.logs : null;
+        if (!items || items.length === 0) { logs.textContent = 'No logs'; return; }
+        items.forEach(l => {
+          const el = document.createElement('div');
+          el.className = 'log ' + (l.level || 'info').toLowerCase();
+          el.textContent = `[${l.timestamp || ''}] ${l.level || 'INFO'}: ${l.message || l.text}`;
+          logs.appendChild(el);
+        });
+      }
+
+      function updatePlayMode(payload) {
+        if (!payload) return;
+        const text = payload.isPlaying ? (payload.isPaused ? 'Play (paused)' : 'Play') : 'Edit';
+        playMode.textContent = text;
+      }
+
+      async function fetchAll() {
+        try {
+          const [sceneResult, hierarchyResult, logsResult, playModeResult] = await Promise.all([
+            callTool('get_scene_info', {}),
+            callTool('get_scenes_hierarchy', {}),
+            callTool('get_console_logs', { limit: 200, includeStackTrace: false }),
+            callTool('get_play_mode_status', {}),
+          ]);
+
+          updateScene(extractToolData(sceneResult));
+          const hierarchyData = extractToolData(hierarchyResult);
+          renderHierarchy(hierarchyData && hierarchyData.hierarchy ? hierarchyData.hierarchy : hierarchyData);
+          updateLogs(extractToolData(logsResult));
+          updatePlayMode(extractToolData(playModeResult));
+        } catch (e) {
+          // Keep UI usable even if one call fails.
+        }
+      }
+
+      // Auto refresh
+      let timer = null;
+      function scheduleAuto() {
+        if (timer) clearInterval(timer);
+        if (autoRefresh.checked) {
+          timer = setInterval(fetchAll, Number(interval.value) * 1000);
+        }
+      }
+      autoRefresh.onchange = scheduleAuto;
+      interval.onchange = scheduleAuto;
+
+      // Initial load
+      (async () => {
+        try {
+          await initializeApp();
+        } catch (e) {
+          // If init fails, the host likely doesn't support MCP Apps.
+        }
+        fetchAll();
+      })();
+    </script>
+  </body>
+</html>

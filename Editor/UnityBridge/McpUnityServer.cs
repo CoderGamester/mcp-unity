@@ -361,6 +361,10 @@ namespace McpUnity.Unity
             GetSceneInfoTool getSceneInfoTool = new GetSceneInfoTool();
             _tools.Add(getSceneInfoTool.Name, getSceneInfoTool);
 
+            // Register GetPlayModeStatusTool
+            GetPlayModeStatusTool getPlayModeStatusTool = new GetPlayModeStatusTool();
+            _tools.Add(getPlayModeStatusTool.Name, getPlayModeStatusTool);
+
             // Register UnloadSceneTool
             UnloadSceneTool unloadSceneTool = new UnloadSceneTool();
             _tools.Add(unloadSceneTool.Name, unloadSceneTool);

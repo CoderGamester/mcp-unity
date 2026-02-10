@@ -38,6 +38,7 @@ import { registerGetTestsResource } from './resources/getTestsResource.js';
 import { registerGetGameObjectResource } from './resources/getGameObjectResource.js';
 import { registerUnityDashboardAppResource } from './resources/unityDashboardAppResource.js';
 import { registerGameObjectHandlingPrompt } from './prompts/gameobjectHandlingPrompt.js';
+import { registerUnityDashboardPrompt } from './prompts/unityDashboardPrompt.js';
 
 // Initialize loggers
 const serverLogger = new Logger('Server', LogLevel.INFO);
@@ -112,6 +113,7 @@ registerUnityDashboardAppResource(server, resourceLogger);
 
 // Register all prompts into the MCP server
 registerGameObjectHandlingPrompt(server);
+registerUnityDashboardPrompt(server);
 
 // Server startup function
 async function startServer() {

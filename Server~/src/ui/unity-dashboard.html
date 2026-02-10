@@ -18,7 +18,7 @@
       button svg{width:16px;height:16px;fill:currentColor}
       button.primary{background:var(--accent);color:#022; border-color:transparent}
       button.primary:active:not(:disabled){background:rgba(79,209,197,0.85)}
-      .grid{display:grid;grid-template-columns:1fr 360px;gap:12px}
+      .grid{display:grid;grid-template-columns:1fr;gap:12px}
       .card{background:var(--card);border:1px solid #122432;padding:12px;border-radius:8px}
       .section-title{font-size:13px;color:var(--muted);margin-bottom:8px}
       #hierarchy{max-height:800px;overflow:auto;font-size:13px}
@@ -27,7 +27,7 @@
       .node.selected{background:#1b3b5a;color:#fff}
       .node.focused{outline:1px solid #ffd580;background:#14283e}
       .node.scene{color:#9fc5ff;font-weight:600}
-      .logs{max-height:800px;overflow:auto;font-family:monospace;font-size:12px}
+      .logs{max-height:300px;overflow:auto;font-family:monospace;font-size:12px}
       .log.info{color:#9fc5ff}
       .log.warn{color:#ffd580}
       .log.error{color:#ff9b9b}
@@ -44,6 +44,11 @@
       .status-badge.success{background:#0f2b1c;border-color:#22c55e;color:#bbf7d0}
       .spinner{width:10px;height:10px;border:2px solid #a16207;border-top-color:transparent;border-radius:50%;display:inline-block;animation:spin 1s linear infinite}
       @keyframes spin{to{transform:rotate(360deg)}}
+      .logs-panel{position:fixed;bottom:0;left:0;right:0;background:#0a1420;border-top:2px solid #1a3a5a;max-height:400px;overflow:auto;font-family:monospace;font-size:11px;z-index:9998;display:none}
+      .logs-panel.visible{display:block}
+      .logs-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#0f1c2e;border-bottom:1px solid #1a3a5a}
+      .logs-title{color:#4fd1c5;font-weight:600;font-size:12px}
+      .logs-content{padding:8px 12px}
       .debug-panel{position:fixed;bottom:0;left:0;right:0;background:#0a1420;border-top:2px solid #1a3a5a;max-height:300px;overflow:auto;font-family:monospace;font-size:11px;z-index:9999;display:none}
       .debug-panel.visible{display:block}
       .debug-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#0f1c2e;border-bottom:1px solid #1a3a5a}
@@ -52,7 +57,9 @@
       .debug-log{padding:4px 0;color:#9fc5ff;border-bottom:1px solid #0f1c2e}
       .debug-log.error{color:#ff9b9b}
       .debug-log.success{color:#a7f3d0}
-      .debug-toggle{position:fixed;bottom:12px;right:12px;background:#1a3a5a;border:1px solid #2a4a6a;color:#4fd1c5;padding:8px 16px;border-radius:6px;cursor:pointer;z-index:10000;font-size:11px}
+      .panel-toggle{position:fixed;bottom:12px;right:12px;background:#1a3a5a;border:1px solid #2a4a6a;color:#4fd1c5;padding:8px;border-radius:6px;cursor:pointer;z-index:10000;font-size:11px;width:40px;height:40px;display:flex;align-items:center;justify-content:center}
+      .panel-toggle svg{width:18px;height:18px;fill:currentColor}
+      .panel-toggle.logs{right:64px}
     </style>
   </head>
   <body>
@@ -102,17 +109,24 @@
             <div id="hierarchy">Loading hierarchy...</div>
           </div>
         </div>
-
-        <div>
-          <div class="card">
-            <div class="section-title">Console Logs</div>
-            <div id="logs" class="logs">Loading logs...</div>
-          </div>
-        </div>
       </div>
     </div>
 
-    <button id="debugToggle" class="debug-toggle">Debug Panel</button>
+    <button id="logsToggle" class="panel-toggle logs" title="Console Logs">
+      <svg viewBox="0 0 16 16"><path d="M2 3h12v2H2zm0 4h12v2H2zm0 4h8v2H2z"/></svg>
+    </button>
+    <button id="debugToggle" class="panel-toggle" title="Debug Panel">
+      <svg viewBox="0 0 16 16"><path d="M8 1a3 3 0 0 0-3 3v1H3v2h1v1.5a5 5 0 0 0 .5 2.2L3 12v2l2-1 1.3.7A3 3 0 0 0 8 14a3 3 0 0 0 1.7-.3L11 14l2 1v-2l-1.5-1.3a5 5 0 0 0 .5-2.2V7h1V5h-2V4a3 3 0 0 0-3-3zm0 2a1 1 0 0 1 1 1v1H7V4a1 1 0 0 1 1-1z"/></svg>
+    </button>
+    
+    <div id="logsPanel" class="logs-panel">
+      <div class="logs-header">
+        <div class="logs-title">Console Logs</div>
+        <button id="logsClose" style="background:transparent;border:none;color:#9fb1c9;cursor:pointer;padding:4px 8px">✕</button>
+      </div>
+      <div id="logsContent" class="logs-content"></div>
+    </div>
+    
     <div id="debugPanel" class="debug-panel">
       <div class="debug-header">
         <div class="debug-title">Debug Console</div>
@@ -290,7 +304,7 @@
       async function initializeApp() {
         sceneInfo.textContent = 'Initializing...';
         hierarchy.textContent = 'Initializing...';
-        logs.textContent = 'Initializing...';
+        logsContent.innerHTML = '<div class="log info">Initializing...</div>';
 
         // Give the host/proxy a brief moment to attach its listeners.
         try {
@@ -344,19 +358,34 @@
       const intervalLabel = document.getElementById('intervalLabel');
       const sceneInfo = document.getElementById('sceneInfo');
       const hierarchy = document.getElementById('hierarchy');
-      const logs = document.getElementById('logs');
+      const logsToggle = document.getElementById('logsToggle');
+      const logsPanel = document.getElementById('logsPanel');
+      const logsContent = document.getElementById('logsContent');
+      const logsClose = document.getElementById('logsClose');
       const debugToggle = document.getElementById('debugToggle');
       const debugPanel = document.getElementById('debugPanel');
       const debugClose = document.getElementById('debugClose');
 
+      logsToggle.onclick = () => {
+        logsPanel.classList.toggle('visible');
+        if (logsPanel.classList.contains('visible')) {
+          debugPanel.classList.remove('visible');
+        }
+      };
+
+      logsClose.onclick = () => {
+        logsPanel.classList.remove('visible');
+      };
+
       debugToggle.onclick = () => {
         debugPanel.classList.toggle('visible');
-        debugToggle.textContent = debugPanel.classList.contains('visible') ? 'Hide Debug' : 'Debug Panel';
+        if (debugPanel.classList.contains('visible')) {
+          logsPanel.classList.remove('visible');
+        }
       };
 
       debugClose.onclick = () => {
         debugPanel.classList.remove('visible');
-        debugToggle.textContent = 'Debug Panel';
       };
 
       playBtn.onclick = async () => {
@@ -666,12 +695,12 @@
       }
 
       function updateLogs(payload) {
-        logs.innerHTML = '';
+        logsContent.innerHTML = '';
         const items = Array.isArray(payload)
           ? payload
           : (payload && payload.logs ? payload.logs : null);
         if (!items || items.length === 0) {
-          logs.textContent = 'No logs';
+          logsContent.innerHTML = '<div class="log info">No logs</div>';
           state.lastLogs = { logs: [] };
           return;
         }
@@ -726,7 +755,7 @@
           const el = document.createElement('div');
           el.className = 'log ' + item.type;
           el.textContent = `[${item.timestamp}] ${item.type.toUpperCase()}: ${item.message}`;
-          logs.appendChild(el);
+          logsContent.appendChild(el);
         });
       }
 

@@ -189,6 +189,16 @@ The following tools are available for manipulating and querying Unity scenes and
 - `unity://ui/dashboard`: Unity dashboard MCP App UI
   > **Example prompt:** "Open the Unity dashboard app"
 
+### MCP Server Prompts
+
+Prompts are pre-configured templates that provide guided workflows for common Unity tasks. They help AI assistants understand the proper sequence of operations and available tools for specific scenarios.
+
+- `unity_dashboard`: Opens the Unity dashboard MCP app with contextual information about its features
+  > **Usage:** In your AI assistant, use the prompt "unity_dashboard" to get guided access to the Unity dashboard
+  
+- `gameobject_handling_strategy`: Provides a structured workflow for working with GameObjects, including which tools and resources to use
+  > **Usage:** In your AI assistant, use the prompt "gameobject_handling_strategy" with a GameObject ID, name, or path to get step-by-step guidance
+
 ## Requirements
 - Unity 6 or later - to [install the server](#install-server)
 - Node.js 18 or later - to [start the server](#start-server)

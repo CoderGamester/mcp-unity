@@ -161,6 +161,10 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
 - `unity://tests/{testMode}` — Test Runner test information
 - `unity://ui/dashboard` — Unity dashboard MCP App UI
 
+### Available prompts (current)
+- `unity_dashboard` — Opens Unity dashboard MCP app with guided information about features
+- `gameobject_handling_strategy` — Provides structured workflow for GameObject operations
+
 ### Update policy (for agents)
 - Update this file when:
   - tools/resources/prompts are added/removed/renamed,

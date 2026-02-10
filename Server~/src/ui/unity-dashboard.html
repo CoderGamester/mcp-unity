@@ -12,9 +12,12 @@
       header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
       h1{font-size:18px;margin:0}
       .controls{display:flex;gap:8px}
-      button{background:transparent;border:1px solid #163144;color:var(--muted);padding:6px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px}
+      button{background:transparent;border:1px solid #163144;color:var(--muted);padding:6px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;transition:all 0.15s ease}
+      button:active:not(:disabled){transform:scale(0.95);background:rgba(79,209,197,0.1)}
+      button:disabled{opacity:0.3;cursor:not-allowed;border-color:#0a1420}
       button svg{width:16px;height:16px;fill:currentColor}
       button.primary{background:var(--accent);color:#022; border-color:transparent}
+      button.primary:active:not(:disabled){background:rgba(79,209,197,0.85)}
       .grid{display:grid;grid-template-columns:1fr 360px;gap:12px}
       .card{background:var(--card);border:1px solid #122432;padding:12px;border-radius:8px}
       .section-title{font-size:13px;color:var(--muted);margin-bottom:8px}
@@ -58,11 +61,12 @@
         <h1>Unity Dashboard</h1>
         <div class="controls">
           <div class="toolbar">
-            <button id="syncBtn" class="primary" title="Sync context to agent">
+            <button id="syncBtn" title="Sync context to agent">
               <svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 0 0-4.5 2.8l-1-1v3.5h3.5l-1.2-1.2A3.5 3.5 0 1 1 8 11.5v1.5a5 5 0 0 0 0-10z"/></svg>
             </button>
             <button id="playBtn" title="Play">
-              <svg viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg>
+              <svg id="playIcon" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg>
+              <svg id="stopIcon" viewBox="0 0 16 16" style="display:none"><path d="M3 3h10v10H3z"/></svg>
             </button>
             <button id="pauseBtn" title="Pause">
               <svg viewBox="0 0 16 16"><path d="M3 2h4v12H3zm6 0h4v12H9z"/></svg>
@@ -73,13 +77,13 @@
             <button id="refreshBtn" title="Refresh">
               <svg viewBox="0 0 16 16"><path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 7.42 11h-1.5A6.5 6.5 0 1 1 8 1.5c1.7 0 3.24.66 4.39 1.74L10 6h6V0l-2.35 2.35z"/></svg>
             </button>
-            <button id="fullscreenBtn" title="Fullscreen">
+            <button id="fullscreenBtn" title="Fullscreen (WIP)" disabled>
               <svg viewBox="0 0 16 16"><path d="M2 2v5h1.5V4H7V2.5H2.5zm12 0h-4.5v1.5H13v3h1.5V2.5zM3.5 14v-3H2v4.5h5V14H3.5zm10.5 0h-3.5v1.5H15V11h-1.5v3z"/></svg>
             </button>
-            <button id="pipBtn" title="Picture-in-picture">
+            <button id="pipBtn" title="Picture-in-picture (WIP)" disabled>
               <svg viewBox="0 0 16 16"><path d="M1 2v12h14V2H1zm13 11H2V3h12v10z"/><path d="M8.5 9.5h5.5v4H8.5z"/></svg>
             </button>
-            <label class="meta"><input id="autoRefresh" type="checkbox"/> Auto</label>
+            <label class="meta" title="Auto-refresh dashboard"><input id="autoRefresh" type="checkbox" checked/> Auto</label>
             <input id="interval" type="range" min="1" max="10" value="3" />
             <span id="intervalLabel" class="meta">3s</span>
           </div>
@@ -101,21 +105,6 @@
 
         <div>
           <div class="card">
-            <div class="section-title">Play Mode</div>
-            <div id="playMode" class="meta">
-              <div class="status-row">
-                <span id="playModeBadge" class="status-badge edit">Edit</span>
-                <span id="playModeText">Edit mode</span>
-              </div>
-              <div class="status-row">
-                <span id="compileBadge" class="status-badge edit">Idle</span>
-                <span id="compileText">Compilation idle</span>
-                <span id="compileSpinner" class="spinner" style="display:none" aria-hidden="true"></span>
-              </div>
-            </div>
-          </div>
-
-          <div class="card" style="margin-top:12px">
             <div class="section-title">Console Logs</div>
             <div id="logs" class="logs">Loading logs...</div>
           </div>
@@ -342,6 +331,8 @@
       }
 
       const playBtn = document.getElementById('playBtn');
+      const playIcon = document.getElementById('playIcon');
+      const stopIcon = document.getElementById('stopIcon');
       const pauseBtn = document.getElementById('pauseBtn');
       const stepBtn = document.getElementById('stepBtn');
       const refreshBtn = document.getElementById('refreshBtn');
@@ -354,11 +345,6 @@
       const sceneInfo = document.getElementById('sceneInfo');
       const hierarchy = document.getElementById('hierarchy');
       const logs = document.getElementById('logs');
-      const playModeBadge = document.getElementById('playModeBadge');
-      const playModeText = document.getElementById('playModeText');
-      const compileBadge = document.getElementById('compileBadge');
-      const compileText = document.getElementById('compileText');
-      const compileSpinner = document.getElementById('compileSpinner');
       const debugToggle = document.getElementById('debugToggle');
       const debugPanel = document.getElementById('debugPanel');
       const debugClose = document.getElementById('debugClose');
@@ -373,9 +359,20 @@
         debugToggle.textContent = 'Debug Panel';
       };
 
-      playBtn.onclick = () => callTool('set_play_mode_status', { action: 'play' }).catch(() => {});
-      pauseBtn.onclick = () => callTool('set_play_mode_status', { action: 'pause' }).catch(() => {});
-      stepBtn.onclick = () => callTool('set_play_mode_status', { action: 'step' }).catch(() => {});
+      playBtn.onclick = async () => {
+        const isPlaying = state.lastPlayMode && state.lastPlayMode.isPlaying;
+        const action = isPlaying ? 'stop' : 'play';
+        await callTool('set_play_mode_status', { action }).catch(() => {});
+        await fetchAll();
+      };
+      pauseBtn.onclick = async () => {
+        await callTool('set_play_mode_status', { action: 'pause' }).catch(() => {});
+        await fetchAll();
+      };
+      stepBtn.onclick = async () => {
+        await callTool('set_play_mode_status', { action: 'step' }).catch(() => {});
+        await fetchAll();
+      };
       refreshBtn.onclick = fetchAll;
       syncBtn.onclick = () => syncToAgent('manual');
 
@@ -442,21 +439,12 @@
       }
 
       function setDisplayButtonsState() {
-        const modes = getAvailableModes();
-        debugLog('Setting display button states. Available modes: ' + JSON.stringify(modes));
-        // If we don't know, leave enabled and let the host decide.
-        if (modes.length === 0) {
-          debugLog('No modes info, leaving buttons enabled');
-          return;
-        }
-
+        // Fullscreen and PiP buttons are disabled (WIP)
         if (fullscreenBtn) {
-          fullscreenBtn.disabled = !modes.includes('fullscreen');
-          debugLog('Fullscreen button disabled: ' + fullscreenBtn.disabled);
+          fullscreenBtn.disabled = true;
         }
         if (pipBtn) {
-          pipBtn.disabled = !modes.includes('pip');
-          debugLog('PiP button disabled: ' + pipBtn.disabled);
+          pipBtn.disabled = true;
         }
       }
 
@@ -677,37 +665,6 @@
         return { state: state.lastCompilationState || 'idle', errorCount: 0 };
       }
 
-      function updateCompilationStatus(stateValue, errorCount) {
-        const labelMap = {
-          idle: 'Idle',
-          compiling: 'Compiling',
-          failed: 'Failed',
-          success: 'Success'
-        };
-        const badgeClassMap = {
-          idle: 'edit',
-          compiling: 'compiling',
-          failed: 'failed',
-          success: 'success'
-        };
-
-        const badgeClass = badgeClassMap[stateValue] || 'edit';
-        compileBadge.className = `status-badge ${badgeClass}`;
-        compileBadge.textContent = labelMap[stateValue] || 'Idle';
-
-        if (stateValue === 'failed') {
-          compileText.textContent = `Compilation failed (${errorCount} errors)`;
-        } else if (stateValue === 'success') {
-          compileText.textContent = 'Compilation succeeded';
-        } else if (stateValue === 'compiling') {
-          compileText.textContent = 'Compiling...';
-        } else {
-          compileText.textContent = 'Compilation idle';
-        }
-
-        compileSpinner.style.display = stateValue === 'compiling' ? 'inline-block' : 'none';
-      }
-
       function updateLogs(payload) {
         logs.innerHTML = '';
         const items = Array.isArray(payload)
@@ -764,7 +721,6 @@
           );
           state.lastCompilationState = compilation.state;
         }
-        updateCompilationStatus(compilation.state, compilation.errorCount);
 
         ordered.forEach(item => {
           const el = document.createElement('div');
@@ -796,10 +752,23 @@
           state.lastPlayModeState = currentKey;
         }
 
-        const badgeLabel = isPlaying ? (isPaused ? 'Paused' : 'Play') : 'Edit';
-        playModeBadge.textContent = badgeLabel;
-        playModeBadge.className = `status-badge ${isPlaying ? 'playing' : 'edit'}`;
-        playModeText.textContent = isPlaying ? (isPaused ? 'Play mode paused' : 'Play mode') : 'Edit mode';
+        // Update play/stop button
+        if (isPlaying) {
+          playIcon.style.display = 'none';
+          stopIcon.style.display = 'block';
+          playBtn.title = 'Stop';
+        } else {
+          playIcon.style.display = 'block';
+          stopIcon.style.display = 'none';
+          playBtn.title = 'Play';
+        }
+
+        // Update pause button highlighting
+        if (isPlaying && isPaused) {
+          pauseBtn.classList.add('primary');
+        } else {
+          pauseBtn.classList.remove('primary');
+        }
       }
 
       function countGameObjects(hierarchyList) {

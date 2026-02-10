@@ -44,6 +44,20 @@ async function toolHandler(): Promise<CallToolResult> {
       {
         type: 'resource',
         resource: {
+          // IMPORTANT: Use the ui:// scheme so MCP App-capable hosts (e.g. VS Code)
+          // recognize this as an App resource and enable native “Open in Editor”.
+          uri: 'ui://unity-dashboard',
+          mimeType,
+          text,
+          _meta: {
+            view: 'mcp-app'
+          }
+        }
+      },
+      // Legacy fallback for hosts/docs that still expect this URI.
+      {
+        type: 'resource',
+        resource: {
           uri: 'unity://ui/dashboard',
           mimeType,
           text,

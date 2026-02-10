@@ -65,7 +65,13 @@ function readDashboardHtml(uriOverride?: string): ReadResourceResult {
           // For hosts that still look for legacy view hints.
           view: 'mcp-app',
           ui: {
-            prefersBorder: true
+            prefersBorder: true,
+            // Some hosts (notably VS Code webviews) apply a strict CSP by default.
+            // The dashboard UI is currently shipped as a single HTML file with inline
+            // <style> and <script>, so request permission for inline resources.
+            csp: {
+              resourceDomains: ["'unsafe-inline'", "'unsafe-eval'"],
+            },
           }
         }
       }

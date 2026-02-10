@@ -17,7 +17,7 @@ export function registerShowUnityDashboardTool(server: McpServer, logger: Logger
     inputSchema: paramsSchema.shape,
     _meta: {
       ui: {
-        resourceUri: 'ui://unity-dashboard'
+        resourceUri: 'ui://unity-dashboard',
       }
     }
   }, async () => {
@@ -34,38 +34,29 @@ export function registerShowUnityDashboardTool(server: McpServer, logger: Logger
 }
 
 async function toolHandler(): Promise<CallToolResult> {
-  // Returning an embedded resource here is the most compatible option:
-  // - Some hosts open the app via tool metadata (_meta.ui.resourceUri)
-  // - Others rely on content blocks with view hints (legacy)
   const { text, mimeType } = readUnityDashboardHtml();
+  const appUri = 'ui://unity-dashboard';
 
   return {
     content: [
       {
         type: 'resource',
         resource: {
-          // IMPORTANT: Use the ui:// scheme so MCP App-capable hosts (e.g. VS Code)
-          // recognize this as an App resource and enable native “Open in Editor”.
-          uri: 'ui://unity-dashboard',
+          uri: appUri,
           mimeType,
           text,
           _meta: {
-            view: 'mcp-app'
-          }
-        }
-      },
-      // Legacy fallback for hosts/docs that still expect this URI.
-      {
-        type: 'resource',
-        resource: {
-          uri: 'unity://ui/dashboard',
-          mimeType,
-          text,
-          _meta: {
-            view: 'mcp-app'
+            view: 'mcp-app',
+            ui: true
           }
         }
       }
-    ]
+    ],
+    _meta: {
+      ui: {
+        resourceUri: appUri,
+        title: 'Unity Dashboard'
+      }
+    }
   };
 }

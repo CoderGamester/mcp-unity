@@ -134,6 +134,8 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
 - `delete_scene` — Delete scenes and remove from Build Settings
 - `save_scene` — Save current scene (with optional Save As)
 - `get_scene_info` — Get active scene info and loaded scenes list
+- `get_play_mode_status` — Get Unity play mode status (isPlaying, isPaused)
+- `set_play_mode_status` — Control Unity play mode (play, pause, stop, step)
 - `unload_scene` — Unload scene from hierarchy
 - `get_gameobject` — Get detailed GameObject info
 - `get_console_logs` — Retrieve Unity console logs

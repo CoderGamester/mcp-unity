@@ -159,6 +159,9 @@ The following tools are available for manipulating and querying Unity scenes and
 - `get_play_mode_status`: Gets Unity play mode status (isPlaying, isPaused)
   > **Example prompt:** "Is Unity in play mode?"
 
+- `set_play_mode_status`: Controls Unity play mode with actions: 'play' (start or unpause), 'pause' (toggle pause), 'stop' (exit play mode), 'step' (advance one frame)
+  > **Example prompt:** "Start Unity play mode" or "Pause the game" or "Step forward one frame"
+
 
 ### MCP Server Resources
 

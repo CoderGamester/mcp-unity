@@ -12,18 +12,19 @@
       header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
       h1{font-size:18px;margin:0}
       .controls{display:flex;gap:8px}
-      button{background:transparent;border:1px solid #163144;color:var(--muted);padding:8px 12px;border-radius:6px;cursor:pointer}
+      button{background:transparent;border:1px solid #163144;color:var(--muted);padding:6px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px}
+      button svg{width:16px;height:16px;fill:currentColor}
       button.primary{background:var(--accent);color:#022; border-color:transparent}
       .grid{display:grid;grid-template-columns:1fr 360px;gap:12px}
       .card{background:var(--card);border:1px solid #122432;padding:12px;border-radius:8px}
       .section-title{font-size:13px;color:var(--muted);margin-bottom:8px}
-      #hierarchy{max-height:560px;overflow:auto;font-size:13px}
+      #hierarchy{max-height:800px;overflow:auto;font-size:13px}
       .node{padding:6px 8px;border-radius:4px;color:#cfe6f8}
       .node:hover{background:#0f2940}
       .node.selected{background:#1b3b5a;color:#fff}
       .node.focused{outline:1px solid #ffd580;background:#14283e}
       .node.scene{color:#9fc5ff;font-weight:600}
-      .logs{max-height:560px;overflow:auto;font-family:monospace;font-size:12px}
+      .logs{max-height:800px;overflow:auto;font-family:monospace;font-size:12px}
       .log.info{color:#9fc5ff}
       .log.warn{color:#ffd580}
       .log.error{color:#ff9b9b}
@@ -40,6 +41,15 @@
       .status-badge.success{background:#0f2b1c;border-color:#22c55e;color:#bbf7d0}
       .spinner{width:10px;height:10px;border:2px solid #a16207;border-top-color:transparent;border-radius:50%;display:inline-block;animation:spin 1s linear infinite}
       @keyframes spin{to{transform:rotate(360deg)}}
+      .debug-panel{position:fixed;bottom:0;left:0;right:0;background:#0a1420;border-top:2px solid #1a3a5a;max-height:300px;overflow:auto;font-family:monospace;font-size:11px;z-index:9999;display:none}
+      .debug-panel.visible{display:block}
+      .debug-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#0f1c2e;border-bottom:1px solid #1a3a5a}
+      .debug-title{color:#4fd1c5;font-weight:600;font-size:12px}
+      .debug-content{padding:8px 12px}
+      .debug-log{padding:4px 0;color:#9fc5ff;border-bottom:1px solid #0f1c2e}
+      .debug-log.error{color:#ff9b9b}
+      .debug-log.success{color:#a7f3d0}
+      .debug-toggle{position:fixed;bottom:12px;right:12px;background:#1a3a5a;border:1px solid #2a4a6a;color:#4fd1c5;padding:8px 16px;border-radius:6px;cursor:pointer;z-index:10000;font-size:11px}
     </style>
   </head>
   <body>
@@ -48,11 +58,27 @@
         <h1>Unity Dashboard</h1>
         <div class="controls">
           <div class="toolbar">
-            <button id="syncBtn" class="primary" title="Sync context to agent">Sync to Agent</button>
-            <button id="playBtn" title="Play">Play</button>
-            <button id="pauseBtn" title="Pause">Pause</button>
-            <button id="stepBtn" title="Step">Step</button>
-            <button id="refreshBtn" title="Refresh">Refresh</button>
+            <button id="syncBtn" class="primary" title="Sync context to agent">
+              <svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 0 0-4.5 2.8l-1-1v3.5h3.5l-1.2-1.2A3.5 3.5 0 1 1 8 11.5v1.5a5 5 0 0 0 0-10z"/></svg>
+            </button>
+            <button id="playBtn" title="Play">
+              <svg viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg>
+            </button>
+            <button id="pauseBtn" title="Pause">
+              <svg viewBox="0 0 16 16"><path d="M3 2h4v12H3zm6 0h4v12H9z"/></svg>
+            </button>
+            <button id="stepBtn" title="Step">
+              <svg viewBox="0 0 16 16"><path d="M3 2l8 6-8 6zm9 0h1v12h-1z"/></svg>
+            </button>
+            <button id="refreshBtn" title="Refresh">
+              <svg viewBox="0 0 16 16"><path d="M13.65 2.35A7.95 7.95 0 0 0 8 0a8 8 0 1 0 7.42 11h-1.5A6.5 6.5 0 1 1 8 1.5c1.7 0 3.24.66 4.39 1.74L10 6h6V0l-2.35 2.35z"/></svg>
+            </button>
+            <button id="fullscreenBtn" title="Fullscreen">
+              <svg viewBox="0 0 16 16"><path d="M2 2v5h1.5V4H7V2.5H2.5zm12 0h-4.5v1.5H13v3h1.5V2.5zM3.5 14v-3H2v4.5h5V14H3.5zm10.5 0h-3.5v1.5H15V11h-1.5v3z"/></svg>
+            </button>
+            <button id="pipBtn" title="Picture-in-picture">
+              <svg viewBox="0 0 16 16"><path d="M1 2v12h14V2H1zm13 11H2V3h12v10z"/><path d="M8.5 9.5h5.5v4H8.5z"/></svg>
+            </button>
             <label class="meta"><input id="autoRefresh" type="checkbox"/> Auto</label>
             <input id="interval" type="range" min="1" max="10" value="3" />
             <span id="intervalLabel" class="meta">3s</span>
@@ -97,6 +123,15 @@
       </div>
     </div>
 
+    <button id="debugToggle" class="debug-toggle">Debug Panel</button>
+    <div id="debugPanel" class="debug-panel">
+      <div class="debug-header">
+        <div class="debug-title">Debug Console</div>
+        <button id="debugClose" style="background:transparent;border:none;color:#9fb1c9;cursor:pointer;padding:4px 8px">✕</button>
+      </div>
+      <div id="debugContent" class="debug-content"></div>
+    </div>
+
     <script>
       const PROTOCOL_VERSION = '2026-01-26';
       const DEFAULT_TIMEOUT_MS = 15000;
@@ -109,6 +144,33 @@
       const hostReadyPromise = new Promise((resolve) => {
         resolveHostReady = resolve;
       });
+      let hostContext = null; // { displayMode, availableDisplayModes, ... }
+
+      const debugLogs = [];
+      const maxDebugLogs = 100;
+
+      function debugLog(message, type = 'info') {
+        const timestamp = new Date().toLocaleTimeString();
+        const log = { timestamp, message, type };
+        debugLogs.push(log);
+        if (debugLogs.length > maxDebugLogs) debugLogs.shift();
+        updateDebugPanel();
+        
+        // Also log to console if available
+        if (type === 'error') console.error(message);
+        else console.log(message);
+      }
+
+      function updateDebugPanel() {
+        const debugContent = document.getElementById('debugContent');
+        if (!debugContent) return;
+        
+        const html = debugLogs.slice().reverse().map(log => 
+          `<div class="debug-log ${log.type}">[${log.timestamp}] ${log.message}</div>`
+        ).join('');
+        
+        debugContent.innerHTML = html || '<div class="debug-log">No logs yet. Click Fullscreen or PiP to test.</div>';
+      }
 
       function toArray(value) {
         return Array.isArray(value) ? value : [value];
@@ -157,15 +219,31 @@
           if (!msg || msg.jsonrpc !== '2.0') continue;
 
           // Track host readiness notifications (non-blocking).
-          if (typeof msg.method === 'string' && !hostReady) {
-            if (msg.method === 'ui/notifications/sandbox-proxy-ready' || msg.method === 'ui/notifications/host-context-changed') {
-              hostReady = true;
-              if (resolveHostReady) resolveHostReady(true);
+          if (typeof msg.method === 'string') {
+            if (msg.method === 'ui/notifications/host-context-changed') {
+              // Host context usually arrives here
+              debugLog('Received host-context-changed: ' + JSON.stringify(msg.params));
+              hostContext = (msg.params && (msg.params.hostContext || msg.params)) || hostContext;
+              debugLog('Updated hostContext: ' + JSON.stringify(hostContext));
+              if (!hostReady) {
+                hostReady = true;
+                if (resolveHostReady) resolveHostReady(true);
+              }
+              setDisplayButtonsState();
             }
+
+            if (msg.method === 'ui/notifications/sandbox-proxy-ready') {
+              if (!hostReady) {
+                hostReady = true;
+                if (resolveHostReady) resolveHostReady(true);
+              }
+            }
+
+            // Notifications are not RPC responses
+            continue;
           }
 
           // Only responses can satisfy pending requests.
-          if (typeof msg.method === 'string') continue;
           if (msg.id === undefined || msg.id === null) continue;
 
           const id = String(msg.id);
@@ -243,6 +321,9 @@
 
         rpcNotify('ui/notifications/initialized');
         state.appReady = true;
+        debugLog('App initialized. Host context: ' + JSON.stringify(hostContext));
+
+        setDisplayButtonsState();
       }
 
       async function callTool(name, args = {}) {
@@ -265,6 +346,8 @@
       const stepBtn = document.getElementById('stepBtn');
       const refreshBtn = document.getElementById('refreshBtn');
       const syncBtn = document.getElementById('syncBtn');
+      const fullscreenBtn = document.getElementById('fullscreenBtn');
+      const pipBtn = document.getElementById('pipBtn');
       const autoRefresh = document.getElementById('autoRefresh');
       const interval = document.getElementById('interval');
       const intervalLabel = document.getElementById('intervalLabel');
@@ -276,14 +359,106 @@
       const compileBadge = document.getElementById('compileBadge');
       const compileText = document.getElementById('compileText');
       const compileSpinner = document.getElementById('compileSpinner');
+      const debugToggle = document.getElementById('debugToggle');
+      const debugPanel = document.getElementById('debugPanel');
+      const debugClose = document.getElementById('debugClose');
 
-      playBtn.onclick = () => callTool('execute_menu_item', { menuPath: 'Edit/Play' }).catch(() => {});
-      pauseBtn.onclick = () => callTool('execute_menu_item', { menuPath: 'Edit/Pause' }).catch(() => {});
-      stepBtn.onclick = () => callTool('execute_menu_item', { menuPath: 'Edit/Step' }).catch(() => {});
+      debugToggle.onclick = () => {
+        debugPanel.classList.toggle('visible');
+        debugToggle.textContent = debugPanel.classList.contains('visible') ? 'Hide Debug' : 'Debug Panel';
+      };
+
+      debugClose.onclick = () => {
+        debugPanel.classList.remove('visible');
+        debugToggle.textContent = 'Debug Panel';
+      };
+
+      playBtn.onclick = () => callTool('set_play_mode_status', { action: 'play' }).catch(() => {});
+      pauseBtn.onclick = () => callTool('set_play_mode_status', { action: 'pause' }).catch(() => {});
+      stepBtn.onclick = () => callTool('set_play_mode_status', { action: 'step' }).catch(() => {});
       refreshBtn.onclick = fetchAll;
       syncBtn.onclick = () => syncToAgent('manual');
 
+      fullscreenBtn && (fullscreenBtn.onclick = async () => {
+        debugLog('Fullscreen button clicked');
+        debugLog('Available modes: ' + JSON.stringify(getAvailableModes()));
+        debugLog('Host context: ' + JSON.stringify(hostContext));
+        try {
+          fullscreenBtn.disabled = true;
+          fullscreenBtn.style.opacity = '0.5';
+          const result = await requestDisplayMode('fullscreen');
+          debugLog('Fullscreen request result: ' + JSON.stringify(result), 'success');
+          fullscreenBtn.style.opacity = '1';
+          fullscreenBtn.disabled = false;
+        } catch (error) {
+          debugLog('Fullscreen request failed: ' + error.message, 'error');
+          fullscreenBtn.style.opacity = '1';
+          fullscreenBtn.style.borderColor = '#ff9b9b';
+          setTimeout(() => {
+            fullscreenBtn.style.borderColor = '';
+            fullscreenBtn.disabled = false;
+          }, 2000);
+        }
+      });
+
+      pipBtn && (pipBtn.onclick = async () => {
+        debugLog('PiP button clicked');
+        debugLog('Available modes: ' + JSON.stringify(getAvailableModes()));
+        debugLog('Host context: ' + JSON.stringify(hostContext));
+        try {
+          const modes = getAvailableModes();
+          const targetMode = modes.includes('pip') ? 'pip' : 'fullscreen';
+          debugLog('Requesting mode: ' + targetMode);
+          pipBtn.disabled = true;
+          pipBtn.style.opacity = '0.5';
+          const result = await requestDisplayMode(targetMode);
+          debugLog('PiP request result: ' + JSON.stringify(result), 'success');
+          pipBtn.style.opacity = '1';
+          pipBtn.disabled = false;
+        } catch (error) {
+          debugLog('PiP request failed: ' + error.message, 'error');
+          pipBtn.style.opacity = '1';
+          pipBtn.style.borderColor = '#ff9b9b';
+          setTimeout(() => {
+            pipBtn.style.borderColor = '';
+            pipBtn.disabled = false;
+          }, 2000);
+        }
+      });
+
       interval.oninput = () => { intervalLabel.textContent = interval.value + 's'; };
+
+      function getAvailableModes() {
+        const modes = hostContext && hostContext.availableDisplayModes;
+        return Array.isArray(modes) ? modes : [];
+      }
+
+      async function requestDisplayMode(mode) {
+        // This is the actual MCP Apps request:
+        debugLog('Sending ui/request-display-mode with mode: ' + mode);
+        const result = await rpcRequest('ui/request-display-mode', { mode }, DEFAULT_TIMEOUT_MS);
+        debugLog('ui/request-display-mode response: ' + JSON.stringify(result));
+        return result;
+      }
+
+      function setDisplayButtonsState() {
+        const modes = getAvailableModes();
+        debugLog('Setting display button states. Available modes: ' + JSON.stringify(modes));
+        // If we don't know, leave enabled and let the host decide.
+        if (modes.length === 0) {
+          debugLog('No modes info, leaving buttons enabled');
+          return;
+        }
+
+        if (fullscreenBtn) {
+          fullscreenBtn.disabled = !modes.includes('fullscreen');
+          debugLog('Fullscreen button disabled: ' + fullscreenBtn.disabled);
+        }
+        if (pipBtn) {
+          pipBtn.disabled = !modes.includes('pip');
+          debugLog('PiP button disabled: ' + pipBtn.disabled);
+        }
+      }
 
       function extractToolData(callToolResult) {
         if (!callToolResult) return null;
@@ -334,16 +509,17 @@
         const normalized = text.trim().toLowerCase();
         if (!normalized) return null;
 
-        if (normalized === 'edit mode') {
-          return { isPlaying: false, isPaused: false };
+        // Check for paused state first (more specific)
+        if (normalized.includes('play mode') && normalized.includes('paused')) {
+          return { isPlaying: true, isPaused: true };
         }
 
         if (normalized === 'play mode') {
           return { isPlaying: true, isPaused: false };
         }
 
-        if (normalized.includes('play mode') && normalized.includes('paused')) {
-          return { isPlaying: true, isPaused: true };
+        if (normalized === 'edit mode') {
+          return { isPlaying: false, isPaused: false };
         }
 
         return null;
@@ -784,14 +960,11 @@
         try {
           await initializeApp();
         } catch (error) {
-          if (transportMode() === 'unity-ws') {
-            sceneInfo.textContent = `Standalone mode (${unityWsHost}:${unityWsPort})`;
-          } else {
-            const message = error && error.message ? String(error.message) : 'Unknown error';
-            sceneInfo.textContent = `Host init failed: ${message}`;
-            hierarchy.textContent = 'Host init failed.';
-            logs.textContent = 'Host init failed.';
-          }
+          debugLog('Init error: ' + error.message, 'error');
+          const message = error && error.message ? String(error.message) : 'Unknown error';
+          sceneInfo.textContent = `Host init failed: ${message}`;
+          hierarchy.textContent = 'Host init failed.';
+          logs.textContent = 'Host init failed.';
         }
         await fetchAll();
         await syncToAgent('auto');

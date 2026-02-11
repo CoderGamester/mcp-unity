@@ -60,6 +60,11 @@
       .panel-toggle{position:fixed;bottom:12px;right:12px;background:#1a3a5a;border:1px solid #2a4a6a;color:#4fd1c5;padding:8px;border-radius:6px;cursor:pointer;z-index:10000;font-size:11px;width:40px;height:40px;display:flex;align-items:center;justify-content:center}
       .panel-toggle svg{width:18px;height:18px;fill:currentColor}
       .panel-toggle.logs{right:64px}
+      .node.flagged{outline:1px solid #ffd580;background:#14283e}
+      .node-row{display:flex;align-items:center;gap:6px}
+      .focus-btn{background:#0c1b2a;border:1px solid #1f3750;color:#5f6f84;padding:2px 6px;border-radius:6px;font-size:12px;min-width:20px;height:20px;line-height:1}
+      .focus-btn:hover{border-color:#4fd1c5;color:#e6eef8}
+      .focus-btn.focused{color:#ffd580;border-color:#5f4b1c;background:rgba(255,213,128,0.12)}
     </style>
   </head>
   <body>
@@ -278,7 +283,8 @@
         lastSceneInfo: null,
         lastHierarchy: null,
         lastLogs: null,
-        lastPlayMode: null
+        lastPlayMode: null,
+        focusedObjects: new Set()
       };
 
       async function updateAgentContext(description, metadata) {
@@ -621,6 +627,20 @@
         );
       }
 
+      function isFocused(id) {
+        return state.focusedObjects.has(id);
+      }
+
+      function toggleFocus(entry) {
+        if (!entry || entry.id === undefined || entry.id === null) return;
+        if (state.focusedObjects.has(entry.id)) {
+          state.focusedObjects.delete(entry.id);
+        } else {
+          state.focusedObjects.add(entry.id);
+        }
+        renderHierarchy(state.lastHierarchy || []);
+      }
+
       function renderGameObjectNode(node, depth, parentPath, container) {
         const name = node.name || 'GameObject';
         const currentPath = parentPath ? `${parentPath}/${name}` : name;
@@ -633,7 +653,30 @@
         const element = document.createElement('div');
         element.className = 'node object';
         element.style.paddingLeft = `${12 + depth * 14}px`;
-        element.textContent = name;
+
+        const row = document.createElement('div');
+        row.className = 'node-row';
+
+        const focusBtn = document.createElement('button');
+        focusBtn.className = 'focus-btn';
+        focusBtn.textContent = '*';
+        focusBtn.title = isFocused(entry.id) ? 'Unfocus' : 'Focus';
+        if (isFocused(entry.id)) {
+          focusBtn.classList.add('focused');
+          element.classList.add('flagged');
+        }
+
+        focusBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          toggleFocus(entry);
+        });
+
+        const label = document.createElement('span');
+        label.textContent = name;
+
+        row.appendChild(focusBtn);
+        row.appendChild(label);
+        element.appendChild(row);
 
         if (state.activeGameObject && state.activeGameObject.id === entry.id) {
           element.classList.add('selected');

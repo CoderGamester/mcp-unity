@@ -10,7 +10,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
 ### Step-by-Step Instructions
 
 #### Step 1: Focus/Flag Infrastructure
-- [ ] Add the CSS rules below at the end of the existing `<style>` block in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
+- [x] Add the CSS rules below at the end of the existing `<style>` block in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
 
 ```css
       .node.flagged{outline:1px solid #ffd580;background:#14283e}
@@ -20,7 +20,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
       .focus-btn.focused{color:#ffd580;border-color:#5f4b1c;background:rgba(255,213,128,0.12)}
 ```
 
-- [ ] Replace the `state` declaration in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html) with the block below:
+- [x] Replace the `state` declaration in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html) with the block below:
 
 ```javascript
       const state = {
@@ -41,7 +41,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
       };
 ```
 
-- [ ] Add the focus helpers below immediately after `handleSelection()` in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
+- [x] Add the focus helpers below immediately after `handleSelection()` in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
 
 ```javascript
       function isFocused(id) {
@@ -59,7 +59,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
       }
 ```
 
-- [ ] Replace `renderGameObjectNode()` in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html) with the block below:
+- [x] Replace `renderGameObjectNode()` in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html) with the block below:
 
 ```javascript
       function renderGameObjectNode(node, depth, parentPath, container) {
@@ -120,7 +120,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
 ```
 
 ##### Step 1 Verification Checklist
-- [ ] No build errors
+- [x] No build errors
 - [ ] Clicking the `*` button toggles focus styling on a GameObject node
 
 #### Step 1 STOP & COMMIT

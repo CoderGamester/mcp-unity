@@ -127,7 +127,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
 **STOP & COMMIT:** Agent must stop here and wait for the user to test, stage, and commit the change.
 
 #### Step 2: Hierarchy Filtering (Observer Mode)
-- [ ] Replace the Hierarchy card markup with the block below in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
+- [x] Replace the Hierarchy card markup with the block below in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
 
 ```html
           <div class="card" style="margin-top:12px">
@@ -140,20 +140,20 @@ If not, move them to the correct branch. If the branch does not exist, create it
           </div>
 ```
 
-- [ ] Add the CSS rule below at the end of the existing `<style>` block in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
+- [x] Add the CSS rule below at the end of the existing `<style>` block in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
 
 ```css
       .hierarchy-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 ```
 
-- [ ] Add the DOM references below alongside the other element lookups in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
+- [x] Add the DOM references below alongside the other element lookups in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
 
 ```javascript
       const focusFilter = document.getElementById('focusFilter');
       const focusCount = document.getElementById('focusCount');
 ```
 
-- [ ] Replace the `state` declaration in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html) with the block below:
+- [x] Replace the `state` declaration in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html) with the block below:
 
 ```javascript
       const state = {
@@ -175,7 +175,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
       };
 ```
 
-- [ ] Add the filtering helpers below immediately after `countGameObjects()` in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
+- [x] Add the filtering helpers below immediately after `countGameObjects()` in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
 
 ```javascript
       function collectHierarchyIds(hierarchyList) {
@@ -252,7 +252,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
       }
 ```
 
-- [ ] Add the filter toggle handler below after the `interval.onchange = scheduleAuto;` line in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
+- [x] Add the filter toggle handler below after the `interval.onchange = scheduleAuto;` line in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html):
 
 ```javascript
       focusFilter.onchange = () => {
@@ -261,7 +261,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
       };
 ```
 
-- [ ] Replace `renderHierarchy()` in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html) with the block below:
+- [x] Replace `renderHierarchy()` in [Server~/src/ui/unity-dashboard.html](Server~/src/ui/unity-dashboard.html) with the block below:
 
 ```javascript
       function renderHierarchy(list) {
@@ -302,7 +302,7 @@ If not, move them to the correct branch. If the branch does not exist, create it
 ```
 
 ##### Step 2 Verification Checklist
-- [ ] No build errors
+- [x] No build errors
 - [ ] Toggling "Show only focused" filters the hierarchy and updates the counter
 
 #### Step 2 STOP & COMMIT

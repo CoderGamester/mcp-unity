@@ -65,6 +65,7 @@
       .focus-btn{background:#0c1b2a;border:1px solid #1f3750;color:#5f6f84;padding:2px 6px;border-radius:6px;font-size:12px;min-width:20px;height:20px;line-height:1}
       .focus-btn:hover{border-color:#4fd1c5;color:#e6eef8}
       .focus-btn.focused{color:#ffd580;border-color:#5f4b1c;background:rgba(255,213,128,0.12)}
+      .hierarchy-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
     </style>
   </head>
   <body>
@@ -111,6 +112,10 @@
 
           <div class="card" style="margin-top:12px">
             <div class="section-title">Hierarchy</div>
+            <div class="hierarchy-toolbar">
+              <label class="meta"><input id="focusFilter" type="checkbox" /> Show only focused</label>
+              <span id="focusCount" class="meta"></span>
+            </div>
             <div id="hierarchy">Loading hierarchy...</div>
           </div>
         </div>
@@ -284,7 +289,8 @@
         lastHierarchy: null,
         lastLogs: null,
         lastPlayMode: null,
-        focusedObjects: new Set()
+        focusedObjects: new Set(),
+        focusFilterEnabled: false
       };
 
       async function updateAgentContext(description, metadata) {
@@ -364,6 +370,8 @@
       const intervalLabel = document.getElementById('intervalLabel');
       const sceneInfo = document.getElementById('sceneInfo');
       const hierarchy = document.getElementById('hierarchy');
+      const focusFilter = document.getElementById('focusFilter');
+      const focusCount = document.getElementById('focusCount');
       const logsToggle = document.getElementById('logsToggle');
       const logsPanel = document.getElementById('logsPanel');
       const logsContent = document.getElementById('logsContent');
@@ -700,13 +708,25 @@
       function renderHierarchy(list) {
         if (!list || list.length === 0) {
           hierarchy.textContent = 'No scene data';
+          updateFocusCounter(0, 0);
+          return;
+        }
+
+        pruneFocusedObjects(list);
+        const totalCount = countGameObjects(list);
+        const visibleList = getVisibleHierarchy(list);
+        const visibleCount = countGameObjects(visibleList);
+
+        if (state.focusFilterEnabled && state.focusedObjects.size === 0) {
+          hierarchy.textContent = 'No focused objects';
+          updateFocusCounter(totalCount, 0);
           return;
         }
 
         hierarchy.innerHTML = '';
         const container = document.createElement('div');
 
-        list.forEach(scene => {
+        visibleList.forEach(scene => {
           const sceneNode = document.createElement('div');
           sceneNode.className = 'node scene';
           sceneNode.textContent = scene.name || 'Scene';
@@ -718,6 +738,7 @@
 
         hierarchy.appendChild(container);
         detectSceneChanges(list.map(scene => scene.name).filter(Boolean));
+        updateFocusCounter(totalCount, visibleCount);
       }
 
       function isCompilationError(message) {
@@ -861,6 +882,79 @@
         return count;
       }
 
+      function collectHierarchyIds(hierarchyList) {
+        const ids = new Set();
+
+        function visit(node) {
+          if (!node) return;
+          ids.add(node.instanceId);
+          const children = node.children || [];
+          children.forEach(child => visit(child));
+        }
+
+        if (Array.isArray(hierarchyList)) {
+          hierarchyList.forEach(scene => {
+            const roots = scene.rootObjects || [];
+            roots.forEach(root => visit(root));
+          });
+        }
+
+        return ids;
+      }
+
+      function pruneFocusedObjects(hierarchyList) {
+        const ids = collectHierarchyIds(hierarchyList);
+        let removed = false;
+        for (const id of Array.from(state.focusedObjects)) {
+          if (!ids.has(id)) {
+            state.focusedObjects.delete(id);
+            removed = true;
+          }
+        }
+        return removed;
+      }
+
+      function filterNodeForFocus(node, focusedSet) {
+        const children = node.children || [];
+        const filteredChildren = children.map(child => filterNodeForFocus(child, focusedSet)).filter(Boolean);
+        if (focusedSet.has(node.instanceId) || filteredChildren.length > 0) {
+          return { ...node, children: filteredChildren };
+        }
+        return null;
+      }
+
+      function filterHierarchyForFocus(list, focusedSet) {
+        if (!focusedSet || focusedSet.size === 0) return list;
+        const filtered = [];
+        list.forEach(scene => {
+          const roots = scene.rootObjects || [];
+          const filteredRoots = roots.map(root => filterNodeForFocus(root, focusedSet)).filter(Boolean);
+          if (filteredRoots.length > 0) {
+            filtered.push({ ...scene, rootObjects: filteredRoots });
+          }
+        });
+        return filtered;
+      }
+
+      function getVisibleHierarchy(list) {
+        if (state.focusFilterEnabled && state.focusedObjects.size > 0) {
+          return filterHierarchyForFocus(list, state.focusedObjects);
+        }
+        return list;
+      }
+
+      function updateFocusCounter(totalCount, visibleCount) {
+        if (!focusCount) return;
+        if (state.focusFilterEnabled && state.focusedObjects.size > 0) {
+          focusCount.textContent = `Showing ${visibleCount} of ${totalCount} objects`;
+        } else {
+          focusCount.textContent = `Showing ${totalCount} objects`;
+        }
+        if (state.focusedObjects.size > 0) {
+          focusCount.textContent += ` | Focused ${state.focusedObjects.size}`;
+        }
+      }
+
       function updateInspectorFocus(payload) {
         if (!payload || !payload.activeGameObject) {
           if (state.lastInspectorFocus !== null) {
@@ -996,6 +1090,10 @@
       }
       autoRefresh.onchange = scheduleAuto;
       interval.onchange = scheduleAuto;
+      focusFilter.onchange = () => {
+        state.focusFilterEnabled = focusFilter.checked;
+        renderHierarchy(state.lastHierarchy || []);
+      };
 
       (async () => {
         try {

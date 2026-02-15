@@ -36,8 +36,8 @@ namespace McpUnity.Tools
             string newName = gameObjectData? ["name"]?.ToObject<string>();
             string newTag = gameObjectData? ["tag"]?.ToObject<string>();
             int? newLayer = gameObjectData? ["layer"]?.ToObject<int?>();
-            bool? newIsActiveSelf = gameObjectData? ["isActiveSelf"]?.ToObject<bool?>();
-            bool? newIsStatic = gameObjectData? ["isStatic"]?.ToObject<bool?>();
+            bool? newIsActiveSelf = (gameObjectData?["activeSelf"] ?? gameObjectData?["isActiveSelf"])?.ToObject<bool?>();
+            bool? newIsStatic = (gameObjectData?["isStatic"] ?? gameObjectData?["static"])?.ToObject<bool?>();
 
             GameObject targetGameObject = null;
             string identifierInfo = "";

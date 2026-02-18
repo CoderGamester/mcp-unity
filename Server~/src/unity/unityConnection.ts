@@ -62,7 +62,7 @@ const DEFAULT_CONFIG = {
   minReconnectDelay: 1000,
   maxReconnectDelay: 30000,
   reconnectBackoffMultiplier: 2,
-  maxReconnectAttempts: -1,  // Unlimited
+  maxReconnectAttempts: 50,  // Prevent unbounded file descriptor accumulation (see #110)
   heartbeatInterval: 30000,
   heartbeatTimeout: 5000,
   playModePollingInterval: 3000  // Fixed 3 second polling during Play mode
@@ -460,31 +460,40 @@ export class UnityConnection extends EventEmitter {
   }
 
   /**
-   * Close WebSocket cleanly
+   * Close WebSocket immediately
+   *
+   * Always uses terminate() instead of close() to prevent file descriptor
+   * accumulation. A graceful close (ws.close()) leaves the socket alive
+   * during the TCP close handshake, which can overlap with the next
+   * connection attempt and accumulate file descriptors on the Unity side.
+   * websocket-sharp uses Mono's IOSelector/select(), which crashes when
+   * file descriptor values exceed ~1024 (POSIX FD_SETSIZE limit).
+   * See: https://github.com/CoderGamester/mcp-unity/issues/110
    */
   private closeWebSocket(reason?: string): void {
     if (!this.ws) return;
 
     this.logger.debug(`Closing WebSocket: ${reason || 'No reason'}`);
 
-    // Remove all event handlers first
-    this.ws.onopen = null;
-    this.ws.onmessage = null;
-    this.ws.onerror = null;
-    this.ws.onclose = null;
-    this.ws.removeAllListeners('pong');
+    // Capture reference and null the field first to prevent any
+    // event handler from seeing a stale socket during teardown
+    const socket = this.ws;
+    this.ws = null;
+
+    // Remove all event handlers before terminating
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    socket.removeAllListeners('pong');
 
     try {
-      if (this.ws.readyState === WebSocket.CONNECTING) {
-        this.ws.terminate();
-      } else if (this.ws.readyState === WebSocket.OPEN) {
-        this.ws.close(1000, reason);
-      }
+      // Always terminate immediately — no graceful close handshake.
+      // This ensures the underlying socket FD is released right away.
+      socket.terminate();
     } catch (err) {
       this.logger.error(`Error closing WebSocket: ${err instanceof Error ? err.message : String(err)}`);
     }
-
-    this.ws = null;
   }
 
   /**

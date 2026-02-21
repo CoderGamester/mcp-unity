@@ -839,7 +839,7 @@ namespace McpUnity.Utils
                 // Method 4: Check if Unity's Library path indicates a VP (Virtual Player) subfolder
                 // Clone instances may use a modified library path
                 string libraryPath = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Library"));
-                if (libraryPath.Contains("VP") && libraryPath.Contains("Library"))
+                if (IsVirtualPlayerLibraryPath(libraryPath))
                 {
                     // Looks like we're in a virtual player's library folder
                     _isMultiplayerPlayModeClone = true;
@@ -857,6 +857,46 @@ namespace McpUnity.Utils
                 _isMultiplayerPlayModeClone = false;
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Returns true when the path contains a "Library" segment followed by a "VP" segment.
+        /// This avoids false positives from names like "MVP" or "CountyLibraryApp".
+        /// </summary>
+        private static bool IsVirtualPlayerLibraryPath(string libraryPath)
+        {
+            if (string.IsNullOrEmpty(libraryPath))
+            {
+                return false;
+            }
+
+            string normalizedPath = libraryPath.Replace('\\', '/');
+            string[] segments = normalizedPath.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            int libraryIndex = -1;
+            for (int i = 0; i < segments.Length; i++)
+            {
+                if (string.Equals(segments[i], "Library", StringComparison.OrdinalIgnoreCase))
+                {
+                    libraryIndex = i;
+                    break;
+                }
+            }
+
+            if (libraryIndex < 0)
+            {
+                return false;
+            }
+
+            for (int i = libraryIndex + 1; i < segments.Length; i++)
+            {
+                if (string.Equals(segments[i], "VP", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

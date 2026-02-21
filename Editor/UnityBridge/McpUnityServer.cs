@@ -329,6 +329,10 @@ namespace McpUnity.Unity
             SendConsoleLogTool sendConsoleLogTool = new SendConsoleLogTool();
             _tools.Add(sendConsoleLogTool.Name, sendConsoleLogTool);
             
+            // Register GetConsoleLogsTool
+            GetConsoleLogsTool getConsoleLogsTool = new GetConsoleLogsTool(_consoleLogsService);
+            _tools.Add(getConsoleLogsTool.Name, getConsoleLogsTool);
+            
             // Register UpdateComponentTool
             UpdateComponentTool updateComponentTool = new UpdateComponentTool();
             _tools.Add(updateComponentTool.Name, updateComponentTool);
@@ -360,6 +364,14 @@ namespace McpUnity.Unity
             // Register GetSceneInfoTool
             GetSceneInfoTool getSceneInfoTool = new GetSceneInfoTool();
             _tools.Add(getSceneInfoTool.Name, getSceneInfoTool);
+
+            // Register GetPlayModeStatusTool
+            GetPlayModeStatusTool getPlayModeStatusTool = new GetPlayModeStatusTool();
+            _tools.Add(getPlayModeStatusTool.Name, getPlayModeStatusTool);
+
+            // Register SetPlayModeStatusTool
+            SetPlayModeStatusTool setPlayModeStatusTool = new SetPlayModeStatusTool();
+            _tools.Add(setPlayModeStatusTool.Name, setPlayModeStatusTool);
 
             // Register UnloadSceneTool
             UnloadSceneTool unloadSceneTool = new UnloadSceneTool();

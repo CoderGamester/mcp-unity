@@ -15,6 +15,10 @@
                           */(((((/.   *((((((*.                             
                      .*((((((((((/.   *((((((((((/.                         
                  ./((((((((((((((/    *((((((((((((((/,                     
+
+### Keeping the dashboard visible (VS Code)
+
+In VS Code, MCP Apps can be opened as a persistent editor tab.
              ,/(((((((((((((/*.           */(((((((((((((/*.                
             ,%%#((/((((((*                    ,/(((((/(#&@@(                
             ,%%##%%##((((((/*.             ,/((((/(#&@@@@@@(                
@@ -147,6 +151,18 @@ The following tools are available for manipulating and querying Unity scenes and
 - `batch_execute`: Executes multiple tool operations in a single batch request, reducing round-trips and enabling atomic operations with optional rollback on failure
   > **Example prompt:** "Create 10 empty GameObjects named Enemy_1 through Enemy_10 in a single batch operation"
 
+### MCP App tools
+
+- `show_unity_dashboard`: Opens the Unity dashboard MCP App in VS Code (requires VS Code 1.109+)
+  > **Example prompt:** "Open the Unity dashboard app"
+
+- `get_play_mode_status`: Gets Unity play mode status (isPlaying, isPaused)
+  > **Example prompt:** "Is Unity in play mode?"
+
+- `set_play_mode_status`: Controls Unity play mode with actions: 'play' (start or unpause), 'pause' (toggle pause), 'stop' (exit play mode), 'step' (advance one frame)
+  > **Example prompt:** "Start Unity play mode" or "Pause the game" or "Step forward one frame"
+
+
 ### MCP Server Resources
 
 - `unity://menu-items`: Retrieves a list of all available menu items in the Unity Editor to facilitate `execute_menu_item` tool
@@ -169,6 +185,19 @@ The following tools are available for manipulating and querying Unity scenes and
 
 - `unity://tests/{testMode}`: Retrieves information about tests in the Unity Test Runner
   > **Example prompt:** "List all available tests in my Unity project"
+
+- `unity://ui/dashboard`: Unity dashboard MCP App UI
+  > **Example prompt:** "Open the Unity dashboard app"
+
+### MCP Server Prompts
+
+Prompts are pre-configured templates that provide guided workflows for common Unity tasks. They help AI assistants understand the proper sequence of operations and available tools for specific scenarios.
+
+- `unity_dashboard`: Opens the Unity dashboard MCP app with contextual information about its features
+  > **Usage:** In your AI assistant, use the prompt "unity_dashboard" to get guided access to the Unity dashboard
+  
+- `gameobject_handling_strategy`: Provides a structured workflow for working with GameObjects, including which tools and resources to use
+  > **Usage:** In your AI assistant, use the prompt "gameobject_handling_strategy" with a GameObject ID, name, or path to get step-by-step guidance
 
 ## Requirements
 - Unity 6 or later - to [install the server](#install-server)

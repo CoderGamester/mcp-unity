@@ -162,5 +162,6 @@ namespace McpUnity.Tests
             // Assert
             Assert.AreEqual(expected, result, "All spaces should be encoded as %20");
         }
+
     }
 }

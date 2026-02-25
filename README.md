@@ -511,6 +511,20 @@ This error occurs because the bridge connection is lost when the domain reloads 
 
 </details>
 
+<details>
+<summary><span style="font-size: 1.1em; font-weight: bold;">Why do some clients fail with <code>KeyError: 'position'</code> during tool initialization?</span></summary>
+
+Some MCP clients may fail while parsing tool schemas when they contain local JSON pointer references such as `#/properties/position`.
+
+MCP Unity avoids this by registering transform tool inputs (`set_transform`, `move_gameobject`, `rotate_gameobject`, `scale_gameobject`) with fresh nested vector schemas per field, so the generated schema does not rely on local `#/properties/...` references.
+
+If you still see this error:
+- update your MCP client to the latest version,
+- rebuild the Node server (`cd Server~ && npm run build`),
+- confirm your package version includes this compatibility fix.
+
+</details>
+
 ## Troubleshooting: WSL2 (Windows 11) networking
 
 When running the MCP (Node.js) server inside WSL2 while Unity runs on Windows 11, connecting to `ws://localhost:8090/McpUnity` may fail with `ECONNREFUSED`.

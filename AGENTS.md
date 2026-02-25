@@ -111,6 +111,7 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
 - **Remote connections**: Unity must bind `0.0.0.0` (`AllowRemoteConnections=true`) and Node must target the correct host (`UNITY_HOST`).
 - **Unity domain reload**: the server stops during script reloads and may restart; avoid relying on persistent in-memory state across reloads.
 - **Multiplayer Play Mode**: Clone instances automatically skip server startup; only the main editor hosts the MCP server.
+- **Schema compatibility across clients**: avoid reusing the same nested Zod object instance for multiple sibling fields (for example `position`, `rotation`, `scale`). Some MCP clients fail on local refs like `#/properties/position`; prefer creating a fresh nested schema per field.
 
 ### Release/version bump checklist
 - Update versions consistently:
@@ -161,4 +162,3 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
   - config shape or default ports/paths change,
   - the bridge protocol changes (request/response contract).
 - Keep it **high-signal**: where to edit code, how to run/build/debug, and the invariants that prevent subtle breakage.
-

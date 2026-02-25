@@ -5,12 +5,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { McpUnityError, ErrorType } from '../utils/errors.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
-// Common Vector3 schema
-const vector3Schema = z.object({
-  x: z.number().describe('X component'),
-  y: z.number().describe('Y component'),
-  z: z.number().describe('Z component')
-});
+// Build a fresh Vector3 schema per field to avoid local JSON pointer refs
+// like "#/properties/position" in generated JSON schema.
+function createVector3Schema() {
+  return z.object({
+    x: z.number().describe('X component'),
+    y: z.number().describe('Y component'),
+    z: z.number().describe('Z component')
+  });
+}
 
 // ============================================================================
 // move_gameobject Tool
@@ -21,7 +24,7 @@ const moveToolDescription = 'Moves a GameObject to a new position. Supports worl
 const moveParamsSchema = z.object({
   instanceId: z.number().optional().describe('The instance ID of the GameObject to move'),
   objectPath: z.string().optional().describe('The path of the GameObject in the hierarchy (alternative to instanceId)'),
-  position: vector3Schema.describe('The target position'),
+  position: createVector3Schema().describe('The target position'),
   space: z.enum(['world', 'local']).default('world').describe('Coordinate space: "world" or "local"'),
   relative: z.boolean().default(false).describe('If true, adds to current position instead of setting absolute position')
 });
@@ -88,7 +91,7 @@ const rotateToolDescription = 'Rotates a GameObject using Euler angles. Supports
 const rotateParamsSchema = z.object({
   instanceId: z.number().optional().describe('The instance ID of the GameObject to rotate'),
   objectPath: z.string().optional().describe('The path of the GameObject in the hierarchy (alternative to instanceId)'),
-  rotation: vector3Schema.describe('The rotation in Euler angles (degrees)'),
+  rotation: createVector3Schema().describe('The rotation in Euler angles (degrees)'),
   space: z.enum(['world', 'local']).default('world').describe('Coordinate space: "world" or "local"'),
   relative: z.boolean().default(false).describe('If true, adds to current rotation instead of setting absolute rotation')
 });
@@ -155,7 +158,7 @@ const scaleToolDescription = 'Scales a GameObject. Supports absolute and relativ
 const scaleParamsSchema = z.object({
   instanceId: z.number().optional().describe('The instance ID of the GameObject to scale'),
   objectPath: z.string().optional().describe('The path of the GameObject in the hierarchy (alternative to instanceId)'),
-  scale: vector3Schema.describe('The scale values'),
+  scale: createVector3Schema().describe('The scale values'),
   relative: z.boolean().default(false).describe('If true, multiplies current scale instead of setting absolute scale')
 });
 
@@ -217,13 +220,19 @@ async function scaleToolHandler(mcpUnity: McpUnity, params: z.infer<typeof scale
 
 const setTransformToolName = 'set_transform';
 const setTransformToolDescription = 'Sets a GameObject\'s transform (position, rotation, scale) in one operation. All transform properties are optional.';
+function createSetTransformParamsShape() {
+  return {
+    instanceId: z.number().optional().describe('The instance ID of the GameObject'),
+    objectPath: z.string().optional().describe('The path of the GameObject in the hierarchy (alternative to instanceId)'),
+    position: createVector3Schema().optional().describe('The position to set'),
+    rotation: createVector3Schema().optional().describe('The rotation in Euler angles (degrees)'),
+    scale: createVector3Schema().optional().describe('The scale to set'),
+    space: z.enum(['world', 'local']).default('world').describe('Coordinate space for position and rotation: "world" or "local"')
+  };
+}
+
 const setTransformParamsSchema = z.object({
-  instanceId: z.number().optional().describe('The instance ID of the GameObject'),
-  objectPath: z.string().optional().describe('The path of the GameObject in the hierarchy (alternative to instanceId)'),
-  position: vector3Schema.optional().describe('The position to set'),
-  rotation: vector3Schema.optional().describe('The rotation in Euler angles (degrees)'),
-  scale: vector3Schema.optional().describe('The scale to set'),
-  space: z.enum(['world', 'local']).default('world').describe('Coordinate space for position and rotation: "world" or "local"')
+  ...createSetTransformParamsShape()
 }).refine(
   data => data.position !== undefined || data.rotation !== undefined || data.scale !== undefined,
   { message: 'At least one of position, rotation, or scale must be provided' }
@@ -239,14 +248,7 @@ export function registerSetTransformTool(server: McpServer, mcpUnity: McpUnity, 
     setTransformToolName,
     setTransformToolDescription,
     // Use base shape without refine for MCP schema registration
-    z.object({
-      instanceId: z.number().optional().describe('The instance ID of the GameObject'),
-      objectPath: z.string().optional().describe('The path of the GameObject in the hierarchy (alternative to instanceId)'),
-      position: vector3Schema.optional().describe('The position to set'),
-      rotation: vector3Schema.optional().describe('The rotation in Euler angles (degrees)'),
-      scale: vector3Schema.optional().describe('The scale to set'),
-      space: z.enum(['world', 'local']).default('world').describe('Coordinate space for position and rotation: "world" or "local"')
-    }).shape,
+    createSetTransformParamsShape(),
     async (params: any) => {
       try {
         logger.info(`Executing tool: ${setTransformToolName}`, params);

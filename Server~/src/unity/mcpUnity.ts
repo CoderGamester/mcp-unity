@@ -7,7 +7,7 @@ import { UnityConnection, ConnectionState, ConnectionStateChange, UnityConnectio
 import { CommandQueue, CommandQueueConfig, CommandQueueStats, QueuedCommand } from './commandQueue.js';
 
 // Top-level constant for the Unity settings JSON path
-const MCP_UNITY_SETTINGS_PATH = path.resolve(process.cwd(), '../ProjectSettings/McpUnitySettings.json');
+const MCP_UNITY_SETTINGS_PATH = path.resolve(process.cwd(), './ProjectSettings/McpUnitySettings.json');
 
 interface PendingRequest {
   resolve: (value: any) => void;

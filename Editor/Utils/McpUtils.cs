@@ -97,31 +97,19 @@ namespace McpUnity.Utils
 
                 return CleanPathPrefix(serverPath);
             }
-            
-            var assets = AssetDatabase.FindAssets("tsconfig");
 
-            if(assets.Length == 1)
-            {
-                // Convert relative path to absolute path
-                var relativePath = AssetDatabase.GUIDToAssetPath(assets[0]);
-                string fullPath = Path.GetFullPath(Path.Combine(Application.dataPath, "..", relativePath));
+            string[] dirs = System.IO.Directory.GetDirectories("Assets", "Server~", System.IO.SearchOption.AllDirectories);
 
-                return CleanPathPrefix(fullPath);
-            }
-            if (assets.Length > 0)
+            for (int n=0; n<dirs.Length; n++)
             {
-                foreach (var assetJson in assets)
+                string tsconfigPath = System.IO.Path.Combine(dirs[n], "tsconfig.json");
+                if (System.IO.File.Exists(tsconfigPath))
                 {
-                    string relativePath = AssetDatabase.GUIDToAssetPath(assetJson);
-                    string fullPath = Path.GetFullPath(Path.Combine(Application.dataPath, "..", relativePath));
-
-                    if(Path.GetFileName(Path.GetDirectoryName(fullPath)) == "Server~")
-                    {
-                        return CleanPathPrefix(Path.GetDirectoryName(fullPath));
-                    }
+                    string fullPath = System.IO.Path.GetFullPath(dirs[n]);
+                    return CleanPathPrefix(fullPath);
                 }
             }
-            
+
             // If we get here, we couldn't find the server path
             var errorString = "[MCP Unity] Could not locate Server directory. Please check the installation of the MCP Unity package.";
 

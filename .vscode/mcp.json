@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "mcp-unity": {
+      "command": "node",
+      "args": [
+        "C:/Projects/private/mcp-unity/Server~/build/index.js"
+      ]
+    }
+  }
+}

@@ -114,12 +114,36 @@ namespace McpUnity.Unity
         /// <summary>
         /// Handle WebSocket connection open.
         /// Supports multiple concurrent MCP clients (e.g. multiple Claude Code instances).
-        /// File descriptor accumulation from reconnection cycles is mitigated on the
-        /// Node.js side via maxReconnectAttempts and socket.terminate().
+        /// Cleans up only inactive (dead) sessions to prevent file descriptor accumulation
+        /// while keeping other active clients connected.
+        /// websocket-sharp uses Mono's IOSelector/select(), which can crash when FD
+        /// values exceed ~1024, so stale session cleanup is important.
         /// See: https://github.com/CoderGamester/mcp-unity/issues/110
         /// </summary>
         protected override void OnOpen()
         {
+            // Clean up inactive (dead) sessions to prevent file descriptor accumulation.
+            // Only removes sessions that are no longer connected — active clients are preserved.
+            // Note: Do NOT use ActiveIDs here — it pings every client and blocks.
+            var inactiveIds = Sessions.InactiveIDs.ToList();
+            if (inactiveIds.Count > 0)
+            {
+                foreach (var oldId in inactiveIds)
+                {
+                    // Also remove from our tracking dictionary
+                    _server.Clients.TryRemove(oldId, out _);
+                    try
+                    {
+                        Sessions.CloseSession(oldId, CloseStatusCode.Normal, "Stale session cleanup");
+                    }
+                    catch (Exception ex)
+                    {
+                        McpLogger.LogWarning($"Error closing stale session {oldId}: {ex.Message}");
+                    }
+                }
+                McpLogger.LogInfo($"Cleaned up {inactiveIds.Count} inactive session(s)");
+            }
+
             // Extract client name from the X-Client-Name header (if available)
             string clientName = "";
             NameValueCollection headers = Context.Headers;

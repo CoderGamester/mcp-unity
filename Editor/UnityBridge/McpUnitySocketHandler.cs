@@ -113,33 +113,35 @@ namespace McpUnity.Unity
         
         /// <summary>
         /// Handle WebSocket connection open.
-        /// Closes any stale connections first to prevent file descriptor accumulation.
-        /// websocket-sharp uses Mono's IOSelector/select(), which crashes when FD
-        /// values exceed ~1024. Limiting to one active connection keeps FD usage bounded.
+        /// Supports multiple concurrent MCP clients (e.g. multiple Claude Code instances).
+        /// Cleans up only inactive (dead) sessions to prevent file descriptor accumulation
+        /// while keeping other active clients connected.
+        /// websocket-sharp uses Mono's IOSelector/select(), which can crash when FD
+        /// values exceed ~1024, so stale session cleanup is important.
         /// See: https://github.com/CoderGamester/mcp-unity/issues/110
         /// </summary>
         protected override void OnOpen()
         {
-            // Close any existing connections — MCP Unity is designed for one client at a time.
-            // This prevents file descriptor accumulation from reconnection cycles.
-            var staleIds = _server.Clients.Keys
-                .Where(id => id != ID)
-                .ToList();
-
-            if (staleIds.Count > 0)
+            // Clean up inactive (dead) sessions to prevent file descriptor accumulation.
+            // Only removes sessions that are no longer connected — active clients are preserved.
+            // Note: Do NOT use ActiveIDs here — it pings every client and blocks.
+            var inactiveIds = Sessions.InactiveIDs.ToList();
+            if (inactiveIds.Count > 0)
             {
-                foreach (var oldId in staleIds)
+                foreach (var oldId in inactiveIds)
                 {
+                    // Also remove from our tracking dictionary
+                    _server.Clients.TryRemove(oldId, out _);
                     try
                     {
-                        Sessions.CloseSession(oldId, CloseStatusCode.Normal, "Replaced by new connection");
+                        Sessions.CloseSession(oldId, CloseStatusCode.Normal, "Stale session cleanup");
                     }
                     catch (Exception ex)
                     {
                         McpLogger.LogWarning($"Error closing stale session {oldId}: {ex.Message}");
                     }
                 }
-                McpLogger.LogInfo($"Closed {staleIds.Count} stale connection(s) to accept new client");
+                McpLogger.LogInfo($"Cleaned up {inactiveIds.Count} inactive session(s)");
             }
 
             // Extract client name from the X-Client-Name header (if available)
@@ -150,10 +152,10 @@ namespace McpUnity.Unity
                 clientName = headers["X-Client-Name"];
             }
 
-            // Always add the client to the server's tracking dictionary
+            // Add the client to the server's tracking dictionary
             _server.Clients[ID] = clientName;
 
-            McpLogger.LogInfo($"WebSocket client connected (ID: {ID}, Name: {(string.IsNullOrEmpty(clientName) ? "Unknown" : clientName)})");
+            McpLogger.LogInfo($"WebSocket client connected (ID: {ID}, Name: {(string.IsNullOrEmpty(clientName) ? "Unknown" : clientName)}, Total clients: {_server.Clients.Count})");
         }
         
         /// <summary>
@@ -162,11 +164,11 @@ namespace McpUnity.Unity
         protected override void OnClose(CloseEventArgs e)
         {
             _server.Clients.TryGetValue(ID, out string clientName);
-            
+
             // Remove the client from the server
-            _server.Clients.Remove(ID);
+            _server.Clients.TryRemove(ID, out _);
             
-            McpLogger.LogInfo($"WebSocket client '{clientName}' disconnected: {e.Reason}");
+            McpLogger.LogInfo($"WebSocket client '{clientName}' disconnected: {e.Reason} (Remaining clients: {_server.Clients.Count})");
         }
         
         /// <summary>

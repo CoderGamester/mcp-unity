@@ -39,6 +39,7 @@ export interface UnityConnectionConfig {
   host: string;
   port: number;
   requestTimeout: number;
+  connectTimeout?: number;
   clientName?: string;
 
   // Reconnection settings
@@ -59,6 +60,7 @@ export interface UnityConnectionConfig {
  * Default configuration values
  */
 const DEFAULT_CONFIG = {
+  connectTimeout: 5000,
   minReconnectDelay: 1000,
   maxReconnectDelay: 30000,
   reconnectBackoffMultiplier: 2,
@@ -86,6 +88,7 @@ export class UnityConnection extends EventEmitter {
   // Reconnection state
   private reconnectAttempt: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private connectionTimeoutTimer: NodeJS.Timeout | null = null;
   private isManualDisconnect: boolean = false;
   private isPlayModeReconnect: boolean = false;  // True when reconnecting due to Unity Play mode
 
@@ -224,7 +227,8 @@ export class UnityConnection extends EventEmitter {
       this.ws = new WebSocket(wsUrl, options);
 
       // Connection timeout
-      const connectionTimeout = setTimeout(() => {
+      this.clearConnectionTimeout();
+      this.connectionTimeoutTimer = setTimeout(() => {
         if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
           this.logger.warn('Connection timeout');
           this.closeWebSocket('Connection timeout');
@@ -233,10 +237,10 @@ export class UnityConnection extends EventEmitter {
           this.handleConnectionFailure(error);
           reject(error);
         }
-      }, this.config.requestTimeout);
+      }, this.config.connectTimeout);
 
       this.ws.onopen = () => {
-        clearTimeout(connectionTimeout);
+        this.clearConnectionTimeout();
         this.logger.info('WebSocket connected to Unity');
 
         // Reset reconnection state on successful connection
@@ -250,7 +254,7 @@ export class UnityConnection extends EventEmitter {
       };
 
       this.ws.onerror = (err) => {
-        clearTimeout(connectionTimeout);
+        this.clearConnectionTimeout();
         const errorMessage = err.message || 'Unknown error';
         this.logger.error(`WebSocket error: ${errorMessage}`);
 
@@ -265,7 +269,7 @@ export class UnityConnection extends EventEmitter {
       };
 
       this.ws.onclose = (event) => {
-        clearTimeout(connectionTimeout);
+        this.clearConnectionTimeout();
         this.stopHeartbeat();
 
         const reason = event.reason || `Code: ${event.code}`;
@@ -474,6 +478,7 @@ export class UnityConnection extends EventEmitter {
     if (!this.ws) return;
 
     this.logger.debug(`Closing WebSocket: ${reason || 'No reason'}`);
+    this.clearConnectionTimeout();
 
     // Capture reference and null the field first to prevent any
     // event handler from seeing a stale socket during teardown
@@ -493,6 +498,13 @@ export class UnityConnection extends EventEmitter {
       socket.terminate();
     } catch (err) {
       this.logger.error(`Error closing WebSocket: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private clearConnectionTimeout(): void {
+    if (this.connectionTimeoutTimer) {
+      clearTimeout(this.connectionTimeoutTimer);
+      this.connectionTimeoutTimer = null;
     }
   }
 

@@ -1,26 +1,39 @@
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 // Mock WebSocket before importing modules that use it
+const mockWebSocketInstances: any[] = [];
+
+const createMockWebSocket = (overrides: Record<string, any> = {}) => ({
+  readyState: 1,
+  onopen: null,
+  onclose: null,
+  onerror: null,
+  onmessage: null,
+  send: jest.fn(),
+  close: jest.fn(),
+  terminate: jest.fn(),
+  ping: jest.fn(),
+  on: jest.fn(),
+  removeAllListeners: jest.fn(),
+  ...overrides
+});
+
+const mockWebSocketConstructor = jest.fn(() => {
+  const socket = createMockWebSocket();
+  mockWebSocketInstances.push(socket);
+  return socket;
+});
+
+const mockWebSocketModule = Object.assign(mockWebSocketConstructor, {
+  CONNECTING: 0,
+  OPEN: 1,
+  CLOSING: 2,
+  CLOSED: 3
+});
+
 jest.unstable_mockModule('ws', () => ({
-  default: jest.fn().mockImplementation(() => ({
-    readyState: 1,
-    onopen: null,
-    onclose: null,
-    onerror: null,
-    onmessage: null,
-    send: jest.fn(),
-    close: jest.fn(),
-    terminate: jest.fn(),
-    ping: jest.fn(),
-    on: jest.fn(),
-    removeAllListeners: jest.fn()
-  })),
-  WebSocket: {
-    CONNECTING: 0,
-    OPEN: 1,
-    CLOSING: 2,
-    CLOSED: 3
-  }
+  default: mockWebSocketModule,
+  WebSocket: mockWebSocketModule
 }));
 
 // Dynamic imports after mocking
@@ -44,6 +57,14 @@ describe('UnityConnection', () => {
 
   beforeEach(() => {
     testLogger = createTestLogger();
+    mockWebSocketConstructor.mockImplementation(() => {
+      const socket = createMockWebSocket();
+      mockWebSocketInstances.push(socket);
+      return socket;
+    });
+    mockWebSocketConstructor.mockClear();
+    mockWebSocketInstances.length = 0;
+
     connection = new UnityConnection(testLogger, {
       host: 'localhost',
       port: 8090,
@@ -185,6 +206,50 @@ describe('Exponential Backoff Configuration', () => {
     });
 
     expect(connection.connectionState).toBe(ConnectionState.Disconnected);
+    connection.disconnect();
+  });
+});
+
+describe('Connection timeout handling', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockWebSocketConstructor.mockImplementation(() => {
+      const socket = createMockWebSocket({ readyState: 0 });
+      mockWebSocketInstances.push(socket);
+      return socket;
+    });
+    mockWebSocketConstructor.mockClear();
+    mockWebSocketInstances.length = 0;
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('uses a dedicated connect timeout instead of the request timeout', async () => {
+    const testLogger = createTestLogger();
+    const connection = new UnityConnection(testLogger, {
+      host: 'localhost',
+      port: 8090,
+      requestTimeout: 60000,
+      connectTimeout: 250,
+      minReconnectDelay: 100,
+      maxReconnectDelay: 1000,
+      heartbeatInterval: 0
+    });
+
+    const connectPromise = connection.connect();
+    const connectResult = expect(connectPromise).rejects.toMatchObject({
+      type: ErrorType.CONNECTION,
+      message: 'Connection timeout'
+    });
+
+    await jest.advanceTimersByTimeAsync(250);
+
+    await connectResult;
+    expect(mockWebSocketConstructor).toHaveBeenCalledTimes(1);
+    expect(connection.connectionState).toBe(ConnectionState.Reconnecting);
+
     connection.disconnect();
   });
 });

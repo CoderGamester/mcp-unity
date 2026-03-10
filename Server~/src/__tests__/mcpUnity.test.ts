@@ -1,6 +1,7 @@
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { Logger, LogLevel } from '../utils/logger.js';
 import { McpUnityError, ErrorType } from '../utils/errors.js';
+import { McpUnity, ConnectionState } from '../unity/mcpUnity.js';
 import { registerTransformTools } from '../tools/transformTools.js';
 import path from 'path';
 import { z } from 'zod';
@@ -84,6 +85,61 @@ describe('Logger with path-related messages', () => {
     expect(() => {
       logger.error(`Failed to read file: ${pathWithSpaces}`);
     }).not.toThrow();
+  });
+});
+
+describe('Request timeout handling', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('rejects timed out requests without forcing a reconnect', async () => {
+    const logger = new Logger('Test', LogLevel.ERROR);
+    const unity = new McpUnity(logger, { queueingEnabled: false });
+    const connection = {
+      isConnected: true,
+      isConnecting: false,
+      connectionState: ConnectionState.Connected,
+      send: jest.fn(),
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+      removeAllListeners: jest.fn(),
+      forceReconnect: jest.fn(),
+      getStats: jest.fn(() => ({
+        state: ConnectionState.Connected,
+        reconnectAttempt: 0,
+        timeSinceLastPong: 0
+      }))
+    };
+
+    (unity as any).connection = connection;
+
+    const request = {
+      id: 'request-timeout',
+      method: 'run_tests',
+      params: { mode: 'edit' }
+    };
+
+    const promise = unity.sendRequest(request, { timeout: 50 });
+    const timeoutResult = expect(promise).rejects.toMatchObject({
+      type: ErrorType.TIMEOUT,
+      message: 'Request timed out'
+    });
+
+    expect(connection.send).toHaveBeenCalledWith(JSON.stringify(request));
+
+    await jest.advanceTimersByTimeAsync(50);
+    await timeoutResult;
+
+    expect(connection.forceReconnect).not.toHaveBeenCalled();
+    expect(unity.getConnectionStats().pendingRequests).toBe(0);
+    expect(unity.connectionState).toBe(ConnectionState.Connected);
+
+    await unity.stop();
   });
 });
 

@@ -426,11 +426,6 @@ export class McpUnity {
           this.logger.error(`Request ${requestId} timed out after ${timeoutMs}ms`);
           this.pendingRequests.delete(requestId);
           reject(new McpUnityError(ErrorType.TIMEOUT, 'Request timed out'));
-
-          // Force reconnection on timeout (connection may be stale)
-          if (this.connection) {
-            this.connection.forceReconnect();
-          }
         }
       }, timeoutMs);
 

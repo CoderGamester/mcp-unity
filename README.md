@@ -1,5 +1,7 @@
 # MCP Unity Editor (Game Engine)
 
+[![AgentRank Score](https://agentrank-ai.com/api/badge/tool/CoderGamester--mcp-unity)](https://agentrank-ai.com/tool/CoderGamester--mcp-unity)
+
 [![](https://badge.mcpx.dev?status=on 'MCP Enabled')](https://modelcontextprotocol.io/introduction)
 [![](https://img.shields.io/badge/Unity-000000?style=flat&logo=unity&logoColor=white 'Unity')](https://unity.com/releases/editor/archive)
 [![](https://img.shields.io/badge/Node.js-339933?style=flat&logo=nodedotjs&logoColor=white 'Node.js')](https://nodejs.org/en/download/)

@@ -129,6 +129,44 @@ namespace McpUnity.Resources
             "FMOD",         // FMOD audio
             "FMODUnity",    // FMOD Unity integration
         };
+
+        /// <summary>
+        /// Component base types that should never have public properties reflected because some native-backed getters
+        /// can crash the Unity editor before a managed exception is thrown.
+        /// </summary>
+        private static readonly Type[] UnsafeDetailedInspectionBaseTypes = new Type[]
+        {
+            typeof(Collider)
+        };
+
+        /// <summary>
+        /// Common expensive or unsafe properties that should be skipped for all component types.
+        /// </summary>
+        private static readonly HashSet<string> GloballySkippedPropertyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "mesh",
+            "sharedMesh",
+            "material",
+            "materials",
+            "sharedMaterial",
+            "sharedMaterials",
+            "sprite",
+            "mainTexture",
+            "mainTextureOffset",
+            "mainTextureScale"
+        };
+
+        /// <summary>
+        /// Per-component property denylist for getters known to be unsafe via reflection.
+        /// Keys are matched against the declaring component type and its base types.
+        /// </summary>
+        private static readonly Dictionary<Type, HashSet<string>> SkippedPropertiesByComponentType = new Dictionary<Type, HashSet<string>>
+        {
+            [typeof(Collider)] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "GeometryHolder"
+            }
+        };
         
         /// <summary>
         /// Check if a component type is from a native plugin that may crash when accessed via reflection
@@ -153,6 +191,27 @@ namespace McpUnity.Resources
         }
 
         /// <summary>
+        /// Check if a component type is unsafe to inspect in detail.
+        /// </summary>
+        private static bool ShouldSkipDetailedInspection(Type componentType)
+        {
+            if (IsUnsafeNativeComponent(componentType))
+            {
+                return true;
+            }
+
+            foreach (Type unsafeBaseType in UnsafeDetailedInspectionBaseTypes)
+            {
+                if (unsafeBaseType.IsAssignableFrom(componentType))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Get information about the components attached to a GameObject
         /// </summary>
         /// <param name="gameObject">The GameObject to get components from</param>
@@ -168,7 +227,7 @@ namespace McpUnity.Resources
                 if (component == null) continue;
                 
                 Type componentType = component.GetType();
-                bool isUnsafe = IsUnsafeNativeComponent(componentType);
+                bool skipDetailedInspection = ShouldSkipDetailedInspection(componentType);
                 
                 JObject componentJson = new JObject
                 {
@@ -179,11 +238,11 @@ namespace McpUnity.Resources
                 // Add detailed information if requested and component is safe to inspect
                 if (includeDetailedInfo)
                 {
-                    if (isUnsafe)
+                    if (skipDetailedInspection)
                     {
                         componentJson["properties"] = new JObject
                         {
-                            ["_skipped"] = "Native plugin component - serialization skipped for safety"
+                            ["_skipped"] = "Detailed property serialization skipped for safety"
                         };
                     }
                     else
@@ -277,7 +336,7 @@ namespace McpUnity.Resources
             foreach (PropertyInfo property in properties)
             {
                 // Only include properties with a getter and skip properties that might cause issues or are not useful
-                if (!property.CanRead || ShouldSkipProperty(property)) continue;
+                if (!property.CanRead || ShouldSkipProperty(componentType, property)) continue;
                 
                 try
                 {
@@ -308,17 +367,34 @@ namespace McpUnity.Resources
         /// </summary>
         /// <param name="property">The property to check</param>
         /// <returns>True if the property should be skipped, false otherwise</returns>
-        private static bool ShouldSkipProperty(PropertyInfo property)
+        private static bool ShouldSkipProperty(Type componentType, PropertyInfo property)
         {
-            // Skip properties that might cause issues or are not useful
-            string[] skippedProperties = new string[]
+            if (property == null)
             {
-                "mesh", "sharedMesh", "material", "materials",
-                "sharedMaterial", "sharedMaterials", "sprite",
-                "mainTexture", "mainTextureOffset", "mainTextureScale"
-            };
+                return true;
+            }
 
-            return Array.IndexOf(skippedProperties, property.Name.ToLower()) >= 0;
+            // Skip non-public getters and indexers exposed as properties.
+            if (property.GetMethod == null || !property.GetMethod.IsPublic || property.GetIndexParameters().Length > 0)
+            {
+                return true;
+            }
+
+            if (GloballySkippedPropertyNames.Contains(property.Name))
+            {
+                return true;
+            }
+
+            foreach (KeyValuePair<Type, HashSet<string>> skippedEntry in SkippedPropertiesByComponentType)
+            {
+                if (skippedEntry.Key.IsAssignableFrom(componentType) &&
+                    skippedEntry.Value.Contains(property.Name))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

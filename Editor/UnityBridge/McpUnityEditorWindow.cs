@@ -623,17 +623,27 @@ namespace McpUnity.Unity
         // Helper to show a config button with unified logic
         private void ShowConfigButton(string configLabel, Func<bool, bool> configAction)
         {
-            if (GUILayout.Button($"Configure {configLabel}", GUILayout.Height(30)))
+            bool isSupported = McpUtils.IsAutoConfigSupported(configLabel);
+
+            using (new EditorGUI.DisabledScope(!isSupported))
             {
-                bool added = configAction(_tabsIndentationJson);
-                if (added)
+                if (GUILayout.Button($"Configure {configLabel}", GUILayout.Height(30)))
                 {
-                    EditorUtility.DisplayDialog("Success", $"The MCP configuration was successfully added to the {configLabel} config file.", "OK");
+                    bool added = configAction(_tabsIndentationJson);
+                    if (added)
+                    {
+                        EditorUtility.DisplayDialog("Success", $"The MCP configuration was successfully added to the {configLabel} config file.", "OK");
+                    }
+                    else
+                    {
+                        EditorUtility.DisplayDialog("Error", $"The MCP configuration could not be added to the {configLabel} config file.", "OK");
+                    }
                 }
-                else
-                {
-                    EditorUtility.DisplayDialog("Error", $"The MCP configuration could not be added to the {configLabel} config file.", "OK");
-                }
+            }
+
+            if (!isSupported)
+            {
+                WrappedLabel(McpUtils.GetAutoConfigUnsupportedReason(configLabel), EditorStyles.miniLabel);
             }
         }
 

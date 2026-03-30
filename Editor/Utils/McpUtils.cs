@@ -240,6 +240,48 @@ namespace McpUnity.Utils
         }
 
         /// <summary>
+        /// Returns whether automatic MCP configuration is supported for the given product on the current platform.
+        /// </summary>
+        public static bool IsAutoConfigSupported(string productName)
+        {
+            switch (productName)
+            {
+                case "Claude Code":
+                case "Codex CLI":
+                case "GitHub Copilot":
+                    return Application.platform == RuntimePlatform.WindowsEditor
+                        || Application.platform == RuntimePlatform.OSXEditor
+                        || Application.platform == RuntimePlatform.LinuxEditor;
+                case "Windsurf":
+                case "Claude Desktop":
+                case "Cursor":
+                case "Google Antigravity":
+                    return Application.platform == RuntimePlatform.WindowsEditor
+                        || Application.platform == RuntimePlatform.OSXEditor;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Returns a human-readable reason when automatic MCP configuration is unsupported.
+        /// </summary>
+        public static string GetAutoConfigUnsupportedReason(string productName)
+        {
+            if (IsAutoConfigSupported(productName))
+            {
+                return null;
+            }
+
+            if (Application.platform == RuntimePlatform.LinuxEditor)
+            {
+                return $"Automatic {productName} configuration is currently available on Linux only for Claude Code, Codex CLI, and GitHub Copilot.";
+            }
+
+            return $"Automatic {productName} configuration is not supported on {Application.platform}.";
+        }
+
+        /// <summary>
         /// Common method to add MCP configuration to a specified config file
         /// </summary>
         /// <param name="configFilePath">Path to the config file</param>
@@ -388,21 +430,8 @@ namespace McpUnity.Utils
             // Returns the absolute path to the global Claude configuration file.
             // Windows: %USERPROFILE%\.claude.json
             // macOS/Linux: $HOME/.claude.json
-            string homeDir;
-
-            if (Application.platform == RuntimePlatform.WindowsEditor)
+            if (!TryGetUserHomeDirectory("Claude Code", out string homeDir))
             {
-                // Windows: %USERPROFILE%\.claude.json
-                homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            }
-            else if (Application.platform == RuntimePlatform.OSXEditor)
-            {
-                // macOS: ~/.claude.json
-                homeDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-            }
-            else
-            {
-                Debug.LogError("Unsupported platform for Claude configuration path resolution");
                 return null;
             }
 
@@ -459,25 +488,35 @@ namespace McpUnity.Utils
         private static string GetCodexCliConfigPath()
         {
             // Codex CLI uses ~/.codex/config.toml on all platforms
-            string homeDir;
-            
-            if (Application.platform == RuntimePlatform.WindowsEditor)
+            if (!TryGetUserHomeDirectory("Codex CLI", out string homeDir))
             {
-                // Windows: %USERPROFILE%\.codex\config.toml
-                homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            }
-            else if (Application.platform == RuntimePlatform.OSXEditor)
-            {
-                // macOS: ~/.codex/config.toml
-                homeDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-            }
-            else
-            {
-                Debug.LogError("Unsupported platform for Codex CLI config");
                 return null;
             }
             
             return Path.Combine(homeDir, ".codex", "config.toml");
+        }
+
+        /// <summary>
+        /// Resolves the current user's home directory across supported Unity Editor platforms.
+        /// </summary>
+        private static bool TryGetUserHomeDirectory(string productName, out string homeDir)
+        {
+            if (Application.platform == RuntimePlatform.WindowsEditor)
+            {
+                homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                return true;
+            }
+
+            if (Application.platform == RuntimePlatform.OSXEditor
+                || Application.platform == RuntimePlatform.LinuxEditor)
+            {
+                homeDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+                return true;
+            }
+
+            Debug.LogError($"Unsupported platform for {productName} config");
+            homeDir = null;
+            return false;
         }
 
         /// <summary>

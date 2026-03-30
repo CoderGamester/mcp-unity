@@ -170,6 +170,10 @@ The following tools are available for manipulating and querying Unity scenes and
 - `unity://tests/{testMode}`: Retrieves information about tests in the Unity Test Runner
   > **Example prompt:** "List all available tests in my Unity project"
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/codergamester-mcp-unity).
+
 ## Requirements
 - Unity 6 or later - to [install the server](#install-server)
 - Node.js 18 or later - to [start the server](#start-server)

@@ -12,7 +12,7 @@
     "build"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-ui.mjs",
     "start": "node build/index.js",
     "watch": "tsc --watch",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js",
@@ -29,6 +29,7 @@
   "author": "CoderGamester",
   "license": "MIT",
   "devDependencies": {
+    "@modelcontextprotocol/inspector": "^0.20.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
@@ -41,6 +42,7 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.0.0",
     "@modelcontextprotocol/sdk": "^1.7.0",
     "axios": "^1.8.4",
     "cors": "^2.8.5",

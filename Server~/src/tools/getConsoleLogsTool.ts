@@ -101,16 +101,25 @@ async function toolHandler(
     );
   }
 
+  const logs = response.data ?? response.logs ?? response;
+
   return {
     content: [
       {
         type: "text",
         text: JSON.stringify(
-          response.data || response.logs || response,
+          logs,
           null,
           2
         ),
       },
     ],
+    data: {
+      logs,
+      offset,
+      limit,
+      logType,
+      includeStackTrace,
+    },
   };
 }

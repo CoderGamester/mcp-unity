@@ -135,6 +135,8 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
 - `delete_scene` — Delete scenes and remove from Build Settings
 - `save_scene` — Save current scene (with optional Save As)
 - `get_scene_info` — Get active scene info and loaded scenes list
+- `get_play_mode_status` — Get Unity play mode status (isPlaying, isPaused)
+- `set_play_mode_status` — Control Unity play mode (play, pause, stop, step)
 - `unload_scene` — Unload scene from hierarchy
 - `get_gameobject` — Get detailed GameObject info
 - `get_console_logs` — Retrieve Unity console logs
@@ -147,6 +149,9 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
 - `modify_material` — Modify material properties (colors, floats, textures)
 - `get_material_info` — Get material details including all properties
 
+### Available apps (current)
+- `show_unity_dashboard` — Open the Unity dashboard MCP App in VS Code
+
 ### Available resources (current)
 - `unity://menu-items` — List of available menu items
 - `unity://scenes-hierarchy` — Current scene hierarchy
@@ -155,6 +160,11 @@ Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **
 - `unity://packages` — Installed and available packages
 - `unity://assets` — Asset database information
 - `unity://tests/{testMode}` — Test Runner test information
+- `unity://ui/dashboard` — Unity dashboard MCP App UI
+
+### Available prompts (current)
+- `unity_dashboard` — Opens Unity dashboard MCP app with guided information about features
+- `gameobject_handling_strategy` — Provides structured workflow for GameObject operations
 
 ### Update policy (for agents)
 - Update this file when:

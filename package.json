@@ -2,7 +2,7 @@
   "name": "com.gamelovers.mcp-unity",
   "displayName": "MCP Unity Server",
   "author": "CoderGamester",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "mcpname": "io.github.codergamester/mcp-unity",
   "unity": "2022.3",
   "license": "MIT",

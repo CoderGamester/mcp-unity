@@ -1,4 +1,8 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import {
+  boundedError,
+  boundedErrorMessage,
+} from '../utils/boundedError.js';
 
 export interface UnityReadClient {
   readTool(
@@ -41,6 +45,14 @@ export class CompanionResourceService {
   constructor(private readonly client: UnityReadClient) {}
 
   async read(uri: string): Promise<CompanionResourcePayload> {
+    try {
+      return await this.readInternal(uri);
+    } catch (error) {
+      throw boundedError(error);
+    }
+  }
+
+  private async readInternal(uri: string): Promise<CompanionResourcePayload> {
     const parsed = parseResourceUri(uri);
     switch (parsed.hostname) {
       case 'logs':
@@ -117,7 +129,7 @@ export class CompanionResourceService {
     try {
       result = await this.client.readTool(command, args);
     } catch (error) {
-      throw new Error(`${command} failed: ${errorMessage(error)}`);
+      throw new Error(boundedErrorMessage(`${command} failed: `, error));
     }
     return {
       uri,
@@ -134,7 +146,7 @@ export function decodeToolPayload(
 ): Record<string, unknown> {
   if (result.isError) {
     const detail = firstText(result) ?? 'Unity command returned an error.';
-    throw new Error(`${command} failed: ${detail}`);
+    throw new Error(boundedErrorMessage(`${command} failed: `, detail));
   }
 
   if (isRecord(result.structuredContent)) {
@@ -152,7 +164,9 @@ export function decodeToolPayload(
     }
     return parsed;
   } catch (error) {
-    throw new Error(`${command} returned malformed JSON: ${errorMessage(error)}`);
+    throw new Error(
+      boundedErrorMessage(`${command} returned malformed JSON: `, error),
+    );
   }
 }
 
@@ -956,8 +970,4 @@ function hasProjectionNotice(projection: ProjectionNotice): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

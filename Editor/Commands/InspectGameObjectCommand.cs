@@ -17,7 +17,8 @@ namespace McpUnity.Extensions.Commands
         internal const int MaxComponentsPerGameObject = 32;
         internal const int MaxTotalComponents = 128;
         internal const int PayloadBudgetBytes = 512 * 1024;
-        private const int ContentBudgetBytes = 384 * 1024;
+        internal const int AggregateWorkBudget = 4096;
+        internal const int AggregateContentBudgetBytes = 384 * 1024;
 
         [CliCommand("inspect_gameobject", "Inspect a bounded GameObject hierarchy with optional component and serialized-property details.")]
         public static InspectGameObjectResult Inspect(
@@ -49,6 +50,15 @@ namespace McpUnity.Extensions.Commands
                 MaxTotalComponents = MaxTotalComponents,
                 ComponentsReturned = context.ComponentsReturned,
                 ComponentLimitReached = context.ComponentLimitReached,
+                AggregateWorkBudget = context.Budget.WorkBudget,
+                AggregateWorkUsed = context.Budget.WorkUsed,
+                AggregateWorkLimitReached = context.Budget.WorkLimitReached,
+                AggregateConversionCount = context.Budget.ConversionCount,
+                AggregatePropertiesScanned = context.Budget.PropertiesScanned,
+                AggregateContentBudgetBytes = context.Budget.ContentBudgetBytes,
+                AggregateEstimatedContentBytes = context.Budget.EstimatedContentBytes,
+                AggregateContentLimitReached = context.Budget.ContentLimitReached,
+                ConversionTruncated = context.Budget.ConversionTruncated,
                 PayloadBudgetBytes = PayloadBudgetBytes,
                 PayloadTruncated = context.PayloadTruncated,
                 PayloadTruncationReason = context.PayloadTruncationReason
@@ -208,7 +218,9 @@ namespace McpUnity.Extensions.Commands
                 };
                 context.ComponentsReturned++;
 
-                if (context.IncludeProperties)
+                if (context.IncludeProperties && context.Budget.LimitReached)
+                    MarkAggregatePropertyTruncation(summary, context);
+                else if (context.IncludeProperties)
                     ReadProperties(component, summary, context);
 
                 node.Components.Add(summary);
@@ -237,8 +249,16 @@ namespace McpUnity.Extensions.Commands
                 var serializedObject = new SerializedObject(component);
                 var iterator = serializedObject.GetIterator();
                 var enterChildren = true;
-                while (iterator.NextVisible(enterChildren))
+                while (true)
                 {
+                    if (!context.Budget.TryScanProperty())
+                    {
+                        MarkAggregatePropertyTruncation(summary, context);
+                        break;
+                    }
+                    if (!iterator.NextVisible(enterChildren))
+                        break;
+
                     enterChildren = false;
                     if (iterator.propertyPath == "m_Script")
                         continue;
@@ -256,8 +276,18 @@ namespace McpUnity.Extensions.Commands
                         break;
                     }
 
-                    if (!SerializedPropertyValueReader.TryRead(iterator, out var readResult))
+                    if (!SerializedPropertyValueReader.TryRead(
+                            iterator,
+                            context.Budget,
+                            out var readResult))
+                    {
+                        if (context.Budget.LimitReached)
+                        {
+                            MarkAggregatePropertyTruncation(summary, context);
+                            break;
+                        }
                         continue;
+                    }
 
                     var property = new SerializedPropertyInspection
                     {
@@ -290,6 +320,17 @@ namespace McpUnity.Extensions.Commands
                     ? boundedError
                     : "Inspection failed; error omitted at payload budget.";
             }
+        }
+
+        private static void MarkAggregatePropertyTruncation(
+            ComponentInspection summary,
+            InspectionContext context)
+        {
+            summary.PropertiesTruncated = true;
+            summary.PropertiesOmittedAtLeast++;
+            summary.PropertiesTruncationReason = context.Budget.LimitReason;
+            context.Budget.MarkConversionTruncated();
+            context.MarkPayloadTruncated(context.Budget.LimitReason);
         }
 
         internal static AuthoringResult BoundedIdentity(
@@ -451,6 +492,9 @@ namespace McpUnity.Extensions.Commands
                 IncludeComponents = includeComponents;
                 IncludeProperties = includeProperties;
                 MaxPropertiesPerComponent = maxPropertiesPerComponent;
+                Budget = new InspectionBudget(
+                    AggregateWorkBudget,
+                    AggregateContentBudgetBytes);
             }
 
             public int MaxDepth { get; }
@@ -458,21 +502,17 @@ namespace McpUnity.Extensions.Commands
             public bool IncludeComponents { get; }
             public bool IncludeProperties { get; }
             public int MaxPropertiesPerComponent { get; }
+            public InspectionBudget Budget { get; }
             public int NodesReturned { get; set; }
             public bool NodeLimitReached { get; set; }
             public int ComponentsReturned { get; set; }
             public bool ComponentLimitReached { get; set; }
             public bool PayloadTruncated { get; private set; }
             public string PayloadTruncationReason { get; private set; }
-            private int EstimatedBytes { get; set; }
-
             public bool TryConsume(int bytes)
             {
-                if (EstimatedBytes + bytes <= ContentBudgetBytes)
-                {
-                    EstimatedBytes += bytes;
+                if (Budget.TryReserve(0, bytes))
                     return true;
-                }
                 MarkPayloadTruncated("payloadBudget");
                 return false;
             }

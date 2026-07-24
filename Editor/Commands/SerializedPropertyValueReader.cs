@@ -6,11 +6,76 @@ using UnityEngine;
 
 namespace McpUnity.Extensions.Commands
 {
+    internal sealed class InspectionBudget
+    {
+        public InspectionBudget(int workBudget, int contentBudgetBytes)
+        {
+            WorkBudget = workBudget;
+            ContentBudgetBytes = contentBudgetBytes;
+        }
+
+        public int WorkBudget { get; }
+        public int ContentBudgetBytes { get; }
+        public int WorkUsed { get; private set; }
+        public int EstimatedContentBytes { get; private set; }
+        public int ConversionCount { get; private set; }
+        public int PropertiesScanned { get; private set; }
+        public bool WorkLimitReached { get; private set; }
+        public bool ContentLimitReached { get; private set; }
+        public bool ConversionTruncated { get; private set; }
+        public bool LimitReached => WorkLimitReached || ContentLimitReached;
+        public string LimitReason =>
+            WorkLimitReached ? "aggregateWorkBudget" :
+            ContentLimitReached ? "aggregateContentBudget" :
+            "aggregateBudget";
+
+        public bool TryReserve(
+            int workUnits,
+            int estimatedContentBytes,
+            bool conversion = false,
+            bool propertyScan = false)
+        {
+            workUnits = Math.Max(0, workUnits);
+            estimatedContentBytes = Math.Max(0, estimatedContentBytes);
+            if (WorkUsed > WorkBudget - workUnits)
+            {
+                WorkLimitReached = true;
+                if (conversion || propertyScan)
+                    ConversionTruncated = true;
+                return false;
+            }
+            if (EstimatedContentBytes > ContentBudgetBytes - estimatedContentBytes)
+            {
+                ContentLimitReached = true;
+                if (conversion || propertyScan)
+                    ConversionTruncated = true;
+                return false;
+            }
+
+            WorkUsed += workUnits;
+            EstimatedContentBytes += estimatedContentBytes;
+            if (conversion)
+                ConversionCount++;
+            if (propertyScan)
+                PropertiesScanned++;
+            return true;
+        }
+
+        public bool TryScanProperty() =>
+            TryReserve(1, 0, propertyScan: true);
+
+        public void MarkConversionTruncated()
+        {
+            ConversionTruncated = true;
+        }
+    }
+
     internal static class SerializedPropertyValueReader
     {
         internal const int MaxStringLength = 4096;
         internal const int MaxCollectionLength = 100;
         internal const int MaxSerializationDepth = 4;
+        private const int MaxPropertyNameLength = 256;
 
         internal static Action<string> ConversionObserver { get; set; }
 
@@ -39,9 +104,8 @@ namespace McpUnity.Extensions.Commands
                 case SerializedPropertyType.Quaternion:
                 case SerializedPropertyType.Hash128:
                 case SerializedPropertyType.Generic:
-                    return true;
                 case SerializedPropertyType.ObjectReference:
-                    return !(property.objectReferenceValue is MonoScript);
+                    return true;
                 default:
                     return false;
             }
@@ -49,15 +113,30 @@ namespace McpUnity.Extensions.Commands
 
         public static bool TryRead(
             SerializedProperty property,
+            out SerializedPropertyReadResult result) =>
+            TryRead(
+                property,
+                new InspectionBudget(
+                    InspectGameObjectCommand.AggregateWorkBudget,
+                    InspectGameObjectCommand.AggregateContentBudgetBytes),
+                out result);
+
+        public static bool TryRead(
+            SerializedProperty property,
+            InspectionBudget budget,
             out SerializedPropertyReadResult result)
         {
             result = null;
             if (!CanRead(property))
                 return false;
+            if (!budget.TryReserve(1, 128))
+            {
+                budget.MarkConversionTruncated();
+                return false;
+            }
 
-            ConversionObserver?.Invoke(property.propertyPath);
             var truncations = new List<SerializationTruncationInspection>();
-            if (!TryReadValue(property, 0, truncations, out var value))
+            if (!TryReadValue(property, 0, budget, truncations, out var value))
                 return false;
 
             result = new SerializedPropertyReadResult(value, truncations);
@@ -67,12 +146,22 @@ namespace McpUnity.Extensions.Commands
         private static bool TryReadValue(
             SerializedProperty property,
             int depth,
+            InspectionBudget budget,
             List<SerializationTruncationInspection> truncations,
             out object value)
         {
             value = null;
+            if (!budget.TryReserve(
+                    1,
+                    EstimatedValueBytes(property),
+                    conversion: true))
+            {
+                return false;
+            }
+
+            ConversionObserver?.Invoke(property.propertyPath);
             if (property.isArray && property.propertyType != SerializedPropertyType.String)
-                return TryReadArray(property, depth, truncations, out value);
+                return TryReadArray(property, depth, budget, truncations, out value);
 
             switch (property.propertyType)
             {
@@ -188,7 +277,12 @@ namespace McpUnity.Extensions.Commands
                             ObjectResolver.Describe(referenced));
                     return true;
                 case SerializedPropertyType.Generic:
-                    return TryReadObject(property, depth, truncations, out value);
+                    return TryReadObject(
+                        property,
+                        depth,
+                        budget,
+                        truncations,
+                        out value);
                 default:
                     return false;
             }
@@ -197,6 +291,7 @@ namespace McpUnity.Extensions.Commands
         private static bool TryReadArray(
             SerializedProperty property,
             int depth,
+            InspectionBudget budget,
             List<SerializationTruncationInspection> truncations,
             out object value)
         {
@@ -211,15 +306,50 @@ namespace McpUnity.Extensions.Commands
                 return true;
             }
 
+            if (!budget.TryReserve(1, 64))
+            {
+                budget.MarkConversionTruncated();
+                value = null;
+                AddAggregateTruncation(property, budget, truncations);
+                return true;
+            }
             var originalCount = property.arraySize;
             var count = Mathf.Min(originalCount, MaxCollectionLength);
+            if (!budget.TryReserve(1, count * 8))
+            {
+                budget.MarkConversionTruncated();
+                value = null;
+                AddAggregateTruncation(property, budget, truncations);
+                return true;
+            }
+
             var values = new List<object>(count);
             for (var index = 0; index < count; index++)
             {
+                if (!budget.TryReserve(1, 16))
+                {
+                    budget.MarkConversionTruncated();
+                    AddAggregateTruncation(property, budget, truncations);
+                    break;
+                }
                 var element = property.GetArrayElementAtIndex(index);
-                values.Add(TryReadValue(element, depth + 1, truncations, out var elementValue)
-                    ? elementValue
-                    : null);
+                if (!TryReadValue(
+                        element,
+                        depth + 1,
+                        budget,
+                        truncations,
+                        out var elementValue))
+                {
+                    if (budget.LimitReached)
+                    {
+                        budget.MarkConversionTruncated();
+                        AddAggregateTruncation(property, budget, truncations);
+                        break;
+                    }
+                    values.Add(null);
+                    continue;
+                }
+                values.Add(elementValue);
             }
 
             if (originalCount > MaxCollectionLength)
@@ -238,6 +368,7 @@ namespace McpUnity.Extensions.Commands
         private static bool TryReadObject(
             SerializedProperty property,
             int depth,
+            InspectionBudget budget,
             List<SerializationTruncationInspection> truncations,
             out object value)
         {
@@ -252,14 +383,32 @@ namespace McpUnity.Extensions.Commands
                 return true;
             }
 
+            if (!budget.TryReserve(1, 128))
+            {
+                budget.MarkConversionTruncated();
+                value = null;
+                AddAggregateTruncation(property, budget, truncations);
+                return true;
+            }
             var values = new Dictionary<string, object>();
             var iterator = property.Copy();
             var end = iterator.GetEndProperty();
             var enterChildren = true;
             var supportedCount = 0;
-            while (iterator.NextVisible(enterChildren) &&
-                   !SerializedProperty.EqualContents(iterator, end))
+            while (true)
             {
+                if (!budget.TryScanProperty())
+                {
+                    budget.MarkConversionTruncated();
+                    AddAggregateTruncation(property, budget, truncations);
+                    break;
+                }
+                if (!iterator.NextVisible(enterChildren) ||
+                    SerializedProperty.EqualContents(iterator, end))
+                {
+                    break;
+                }
+
                 enterChildren = false;
                 if (!CanRead(iterator))
                     continue;
@@ -274,25 +423,107 @@ namespace McpUnity.Extensions.Commands
                     break;
                 }
 
-                supportedCount++;
-                if (TryReadValue(iterator, depth + 1, truncations, out var childValue))
+                if (!budget.TryReserve(1, 64))
                 {
-                    var key = iterator.name ?? string.Empty;
-                    if (key.Length > 256)
-                    {
-                        truncations.Add(Truncation(
-                            iterator,
-                            "propertyNameLength",
-                            256,
-                            key.Length));
-                        key = key.Substring(0, 256);
-                    }
-                    values[key] = childValue;
+                    budget.MarkConversionTruncated();
+                    AddAggregateTruncation(property, budget, truncations);
+                    break;
                 }
+                var rawKey = iterator.name ?? string.Empty;
+                var key = rawKey.Length > MaxPropertyNameLength
+                    ? rawKey.Substring(0, MaxPropertyNameLength)
+                    : rawKey;
+                if (!budget.TryReserve(0, WorstCaseJsonStringBytes(key)))
+                {
+                    budget.MarkConversionTruncated();
+                    AddAggregateTruncation(property, budget, truncations);
+                    break;
+                }
+                if (rawKey.Length > MaxPropertyNameLength)
+                {
+                    truncations.Add(Truncation(
+                        iterator,
+                        "propertyNameLength",
+                        MaxPropertyNameLength,
+                        rawKey.Length));
+                }
+
+                supportedCount++;
+                if (!TryReadValue(
+                        iterator,
+                        depth + 1,
+                        budget,
+                        truncations,
+                        out var childValue))
+                {
+                    if (budget.LimitReached)
+                    {
+                        budget.MarkConversionTruncated();
+                        AddAggregateTruncation(property, budget, truncations);
+                        break;
+                    }
+                    continue;
+                }
+                values[key] = childValue;
             }
 
             value = values;
             return true;
+        }
+
+        private static int EstimatedValueBytes(SerializedProperty property)
+        {
+            if (property.isArray && property.propertyType != SerializedPropertyType.String)
+                return 32;
+            switch (property.propertyType)
+            {
+                case SerializedPropertyType.String:
+                    return WorstCaseJsonStringBytes(MaxStringLength);
+                case SerializedPropertyType.Rect:
+                case SerializedPropertyType.RectInt:
+                case SerializedPropertyType.Bounds:
+                case SerializedPropertyType.BoundsInt:
+                    return 256;
+                case SerializedPropertyType.Vector2:
+                case SerializedPropertyType.Vector3:
+                case SerializedPropertyType.Vector4:
+                case SerializedPropertyType.Vector2Int:
+                case SerializedPropertyType.Vector3Int:
+                case SerializedPropertyType.Color:
+                case SerializedPropertyType.Quaternion:
+                    return 128;
+                case SerializedPropertyType.ObjectReference:
+                    return 8 * 1024;
+                case SerializedPropertyType.Enum:
+                case SerializedPropertyType.Hash128:
+                    return 512;
+                case SerializedPropertyType.Generic:
+                    return 32;
+                default:
+                    return 64;
+            }
+        }
+
+        private static int WorstCaseJsonStringBytes(string value) =>
+            value == null ? 4 : 2 + value.Length * 6;
+
+        private static int WorstCaseJsonStringBytes(int characterCount) =>
+            2 + characterCount * 6;
+
+        private static void AddAggregateTruncation(
+            SerializedProperty property,
+            InspectionBudget budget,
+            List<SerializationTruncationInspection> truncations)
+        {
+            if (truncations.Exists(marker => marker.Reason == budget.LimitReason))
+                return;
+            truncations.Add(Truncation(
+                property,
+                budget.LimitReason,
+                budget.WorkLimitReached
+                    ? budget.WorkBudget
+                    : budget.ContentBudgetBytes,
+                null));
         }
 
         private static SerializationTruncationInspection Truncation(

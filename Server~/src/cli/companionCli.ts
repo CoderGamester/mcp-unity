@@ -5,6 +5,11 @@ import {
 } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  boundedErrorDetail,
+  boundedErrorMessage,
+  boundedErrorText,
+} from '../utils/boundedError.js';
 
 export const CLI_DOCUMENTATION_URL =
   'https://docs.unity.com/en-us/unity-cli/use-unity-cli';
@@ -27,7 +32,9 @@ export function parseCompanionArguments(
     const flag = argv[index];
     const value = argv[index + 1];
     if (flag !== '--project-path' && flag !== '--unity-cli-path') {
-      throw new Error(`Unknown argument: ${flag ?? '<empty>'}`);
+      throw new Error(
+        boundedErrorMessage('Unknown argument: ', flag ?? '<empty>'),
+      );
     }
     if (!value || value.startsWith('--')) {
       throw new Error(`${flag} requires a value.`);
@@ -53,7 +60,12 @@ export function parseCompanionArguments(
     throw new Error('--project-path must be absolute.');
   }
   if (!isUnityProject(projectPath)) {
-    throw new Error(`--project-path must identify an existing Unity project: ${projectPath}`);
+    throw new Error(
+      boundedErrorMessage(
+        '--project-path must identify an existing Unity project: ',
+        projectPath,
+      ),
+    );
   }
   if (unityCliPath && !path.isAbsolute(unityCliPath)) {
     throw new Error('--unity-cli-path must be absolute.');
@@ -102,7 +114,10 @@ export async function checkUnityCli(
     output = await runVersion(command, ['--version'], options);
   } catch (error) {
     throw actionableCliError(
-      `Unity CLI could not be started at "${command}": ${errorMessage(error)}`,
+      boundedErrorMessage(
+        `Unity CLI could not be started at "${boundedErrorDetail(command)}": `,
+        error,
+      ),
     );
   }
 
@@ -358,9 +373,9 @@ export async function runUnityCliVersion(
 }
 
 function actionableCliError(message: string): Error {
-  return new Error(`${message} Install or update Unity CLI: ${CLI_DOCUMENTATION_URL}`);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return new Error(
+    boundedErrorText(
+      `${message} Install or update Unity CLI: ${CLI_DOCUMENTATION_URL}`,
+    ),
+  );
 }

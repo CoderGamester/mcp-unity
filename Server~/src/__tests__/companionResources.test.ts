@@ -435,6 +435,43 @@ describe('companion resource mappings', () => {
 });
 
 describe('official tool response decoding', () => {
+  test.each([
+    [
+      'tool error',
+      clientWith(async () => ({
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: `tool-start-${'x'.repeat(16 * 1024 * 1024)}-tool-secret-tail`,
+          },
+        ],
+      })),
+    ],
+    [
+      'transport error',
+      clientWith(async () => {
+        throw new Error(
+          `transport-start-${'x'.repeat(16 * 1024 * 1024)}-transport-secret-tail`,
+        );
+      }),
+    ],
+  ])('bounds 16 MiB %s details with an explicit marker', async (_, client) => {
+    const resources = new CompanionResourceService(client);
+
+    let message = '';
+    try {
+      await resources.read('unity://logs');
+      throw new Error('Expected the resource read to fail.');
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message.length).toBeLessThanOrEqual(4200);
+    expect(message).toContain('[truncated]');
+    expect(message).not.toContain('secret-tail');
+  });
+
   test('prefers object structuredContent and falls back to the first JSON text item', async () => {
     const structuredClient = clientWith(async () =>
       toolResult({ source: 'structured' }),

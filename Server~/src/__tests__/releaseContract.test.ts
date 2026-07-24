@@ -492,6 +492,25 @@ describe('2.0 release contract', () => {
     expect(primaryConfiguration).toContain('`PATH`');
   });
 
+  test('documents and enforces clean companion and aggregate-bound release claims', () => {
+    for (const document of [readme, agents]) {
+      expect(document).toContain('shared aggregate conversion-work budget');
+      expect(document).toContain('4 KiB');
+      expect(document).toContain('clean archive');
+    }
+
+    const cleanSmoke = readRepositoryFile(
+      'Server~/scripts/clean-archive-mcp-smoke.mjs',
+    );
+    expect(companionPackage).toHaveProperty(
+      'scripts.test:clean-archive-mcp',
+      'node scripts/clean-archive-mcp-smoke.mjs',
+    );
+    expect(cleanSmoke).toContain("readResource({ uri: 'ui://unity-dashboard' })");
+    expect(cleanSmoke).toContain("'text/html;profile=mcp-app'");
+    expect(cleanSmoke).toContain('assertNoAncestorNodeModules');
+  });
+
   test('keeps every AI guidance file anchored to the 2.0 maintainer guide', () => {
     const guidanceFiles = walkFiles(repositoryRoot)
       .map((file) => path.relative(repositoryRoot, file))

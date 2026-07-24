@@ -11,11 +11,13 @@ import {
   type UnityReadClient,
 } from '../resources/companionResources.js';
 
-async function connectedCompanion() {
-  const readTool = jest.fn(async (): Promise<CallToolResult> => ({
+async function connectedCompanion(
+  implementation: UnityReadClient['readTool'] = async (): Promise<CallToolResult> => ({
     content: [],
     structuredContent: { ok: true },
-  }));
+  }),
+) {
+  const readTool = jest.fn(implementation);
   const unityClient: UnityReadClient = { readTool };
   const server = createCompanionServer(new CompanionResourceService(unityClient));
   const client = new Client(
@@ -90,6 +92,34 @@ describe('outer MCP companion catalog', () => {
           payloadBudgetBytes: 512 * 1024,
         },
       });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test('bounds the serialized outer MCP resource error response', async () => {
+    const { client, server } = await connectedCompanion(async () => {
+      throw new Error(
+        `outer-start-${'x'.repeat(16 * 1024 * 1024)}-outer-secret-tail`,
+      );
+    });
+    try {
+      let serialized = '';
+      try {
+        await client.readResource({ uri: 'unity://logs?severity=error&limit=4' });
+        throw new Error('Expected the outer MCP read to fail.');
+      } catch (error) {
+        serialized = JSON.stringify({
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
+
+      expect(Buffer.byteLength(serialized)).toBeLessThanOrEqual(5 * 1024);
+      expect(serialized).toContain('[truncated]');
+      expect(serialized).not.toContain('outer-secret-tail');
     } finally {
       await client.close();
       await server.close();

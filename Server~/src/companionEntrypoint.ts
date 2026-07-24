@@ -12,6 +12,7 @@ import {
 import { createCompanionServer } from './companionServer.js';
 import { CompanionResourceService } from './resources/companionResources.js';
 import { OfficialUnityMcpClient } from './unity/officialUnityMcpClient.js';
+import { boundedErrorDetail } from './utils/boundedError.js';
 
 export interface CompanionEntrypointOptions {
   argv: readonly string[];
@@ -54,7 +55,7 @@ export async function startCompanion(
     closeOfficialClient: () => officialClient.close(),
     closeServer: () => server.close(),
     onError: (error) => {
-      options.stderr.write(`Shutdown error: ${errorMessage(error)}\n`);
+      options.stderr.write(`Shutdown error: ${boundedErrorDetail(error)}\n`);
     },
   });
 
@@ -65,8 +66,4 @@ export async function startCompanion(
       handlers.dispose();
     },
   };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

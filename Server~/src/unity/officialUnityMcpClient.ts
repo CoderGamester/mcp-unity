@@ -12,6 +12,7 @@ import {
   type JSONRPCMessage,
   type MessageExtraInfo,
 } from '@modelcontextprotocol/sdk/types.js';
+import { boundedErrorMessage } from '../utils/boundedError.js';
 
 export interface OfficialUnitySession {
   callTool(name: string, args: Record<string, unknown>): Promise<CallToolResult>;
@@ -462,7 +463,10 @@ async function teardownSdkSession(
     );
   }
   throw new Error(
-    `Unity CLI transport teardown failed: ${errorMessage(transportResult.reason)}`,
+    boundedErrorMessage(
+      'Unity CLI transport teardown failed: ',
+      transportResult.reason,
+    ),
   );
 }
 
@@ -500,8 +504,4 @@ function settleWithin(
       (reason: unknown) => finish({ status: 'rejected', reason }),
     );
   });
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

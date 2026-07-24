@@ -9,6 +9,7 @@ import {
   DASHBOARD_URI,
   readDashboardHtml,
 } from './resources/dashboardResource.js';
+import { boundedError } from './utils/boundedError.js';
 
 const RESOURCE_TEMPLATES = [
   {
@@ -109,16 +110,20 @@ export function createCompanionServer(
         mimeType: 'application/json',
       },
       async (uri) => {
-        const result = await resources.read(uri.toString());
-        return {
-          contents: [
-            {
-              uri: result.uri,
-              mimeType: 'application/json',
-              text: JSON.stringify(result.payload),
-            },
-          ],
-        };
+        try {
+          const result = await resources.read(uri.toString());
+          return {
+            contents: [
+              {
+                uri: result.uri,
+                mimeType: 'application/json',
+                text: JSON.stringify(result.payload),
+              },
+            ],
+          };
+        } catch (error) {
+          throw boundedError(error);
+        }
       },
     );
   }

@@ -37,6 +37,33 @@ namespace McpUnity.Extensions.Commands
         [DataMember(Name = "componentLimitReached")]
         public bool ComponentLimitReached { get; set; }
 
+        [DataMember(Name = "aggregateWorkBudget")]
+        public int AggregateWorkBudget { get; set; }
+
+        [DataMember(Name = "aggregateWorkUsed")]
+        public int AggregateWorkUsed { get; set; }
+
+        [DataMember(Name = "aggregateWorkLimitReached")]
+        public bool AggregateWorkLimitReached { get; set; }
+
+        [DataMember(Name = "aggregateConversionCount")]
+        public int AggregateConversionCount { get; set; }
+
+        [DataMember(Name = "aggregatePropertiesScanned")]
+        public int AggregatePropertiesScanned { get; set; }
+
+        [DataMember(Name = "aggregateContentBudgetBytes")]
+        public int AggregateContentBudgetBytes { get; set; }
+
+        [DataMember(Name = "aggregateEstimatedContentBytes")]
+        public int AggregateEstimatedContentBytes { get; set; }
+
+        [DataMember(Name = "aggregateContentLimitReached")]
+        public bool AggregateContentLimitReached { get; set; }
+
+        [DataMember(Name = "conversionTruncated")]
+        public bool ConversionTruncated { get; set; }
+
         [DataMember(Name = "payloadBudgetBytes")]
         public int PayloadBudgetBytes { get; set; }
 

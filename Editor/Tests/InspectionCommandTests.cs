@@ -317,6 +317,71 @@ namespace McpUnity.Extensions.Tests
                 Is.True);
         }
 
+        [Test]
+        public void Inspect_SharesAggregateConversionBudgetAcrossBroadNestedComponents()
+        {
+            var root = new GameObject("Root");
+            for (var componentIndex = 0; componentIndex < 12; componentIndex++)
+            {
+                var fixture = root.AddComponent<BroadInspectionFixtureComponent>();
+                fixture.Groups = Enumerable.Range(0, 40)
+                    .Select(groupIndex => new BroadInspectionGroup
+                    {
+                        Values = Enumerable.Range(0, 40)
+                            .Select(valueIndex => new BroadInspectionValue
+                            {
+                                First = valueIndex,
+                                Second = componentIndex,
+                                Third = groupIndex
+                            })
+                            .ToArray()
+                    })
+                    .ToArray();
+            }
+
+            var readerType = typeof(InspectGameObjectCommand).Assembly.GetType(
+                "McpUnity.Extensions.Commands.SerializedPropertyValueReader",
+                throwOnError: true);
+            var observer = readerType.GetProperty(
+                "ConversionObserver",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            var convertedPaths = new List<string>();
+            observer.SetValue(null, (Action<string>)(path => convertedPaths.Add(path)));
+            InspectGameObjectResult result;
+            try
+            {
+                result = InspectGameObjectCommand.Inspect(
+                    Ref(root),
+                    includeProperties: true,
+                    maxPropertiesPerComponent: 200);
+            }
+            finally
+            {
+                observer.SetValue(null, null);
+            }
+
+            var serializedBytes = System.Text.Encoding.UTF8.GetByteCount(
+                JsonConvert.SerializeObject(result));
+            var fixtures = result.Root.Components
+                .Where(component => component.Type == nameof(BroadInspectionFixtureComponent))
+                .ToList();
+
+            Assert.That(fixtures, Has.Count.GreaterThan(1));
+            Assert.That(result.AggregateWorkBudget, Is.GreaterThan(0));
+            Assert.That(result.AggregateWorkUsed, Is.LessThanOrEqualTo(result.AggregateWorkBudget));
+            Assert.That(result.AggregateWorkLimitReached, Is.True);
+            Assert.That(result.AggregateConversionCount, Is.EqualTo(convertedPaths.Count));
+            Assert.That(convertedPaths.Count, Is.LessThanOrEqualTo(result.AggregateWorkBudget));
+            Assert.That(result.ConversionTruncated, Is.True);
+            Assert.That(result.AggregatePropertiesScanned, Is.LessThanOrEqualTo(result.AggregateWorkBudget));
+            Assert.That(
+                fixtures.Count(component =>
+                    component.PropertiesTruncationReason == "aggregateWorkBudget"),
+                Is.GreaterThan(1),
+                "The one inspect-call budget must remain exhausted for later components.");
+            Assert.That(serializedBytes, Is.LessThanOrEqualTo(512 * 1024));
+        }
+
         private static void AssertValueTruncation(
             object property,
             string reason,
@@ -370,6 +435,25 @@ namespace McpUnity.Extensions.Tests
         public string LargeString;
         public int[] LargeArray;
         public InspectionNestedLevel1 Nested = new InspectionNestedLevel1();
+    }
+
+    public sealed class BroadInspectionFixtureComponent : MonoBehaviour
+    {
+        public BroadInspectionGroup[] Groups;
+    }
+
+    [Serializable]
+    public sealed class BroadInspectionGroup
+    {
+        public BroadInspectionValue[] Values;
+    }
+
+    [Serializable]
+    public sealed class BroadInspectionValue
+    {
+        public int First;
+        public int Second;
+        public int Third;
     }
 
     [Serializable]

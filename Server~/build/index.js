@@ -19209,6 +19209,50 @@ import {
 } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+
+// src/utils/boundedError.ts
+var ERROR_DETAIL_BUDGET_BYTES = 4 * 1024;
+var ERROR_TRUNCATION_MARKER = " [truncated]";
+function boundedErrorDetail(error2) {
+  return boundedErrorText(
+    error2 instanceof Error ? error2.message : String(error2)
+  );
+}
+function boundedErrorMessage(prefix, detail) {
+  return boundedErrorParts(
+    detail === void 0 ? [prefix] : [
+      prefix,
+      detail instanceof Error ? detail.message : String(detail)
+    ]
+  );
+}
+function boundedError(error2, prefix = "") {
+  return new Error(
+    prefix ? boundedErrorMessage(prefix, error2) : boundedErrorDetail(error2)
+  );
+}
+function boundedErrorText(value) {
+  return boundedErrorParts([value]);
+}
+function boundedErrorParts(parts) {
+  const markerBytes = Buffer.byteLength(ERROR_TRUNCATION_MARKER);
+  const contentBudget = ERROR_DETAIL_BUDGET_BYTES - markerBytes;
+  let output = "";
+  let outputBytes = 0;
+  for (const part of parts) {
+    for (const character of part) {
+      const characterBytes = Buffer.byteLength(character);
+      if (outputBytes + characterBytes > contentBudget) {
+        return output + ERROR_TRUNCATION_MARKER;
+      }
+      output += character;
+      outputBytes += characterBytes;
+    }
+  }
+  return output;
+}
+
+// src/cli/companionCli.ts
 var CLI_DOCUMENTATION_URL = "https://docs.unity.com/en-us/unity-cli/use-unity-cli";
 function parseCompanionArguments(argv, isUnityProject = defaultUnityProjectValidator) {
   let projectPath;
@@ -19217,7 +19261,9 @@ function parseCompanionArguments(argv, isUnityProject = defaultUnityProjectValid
     const flag = argv[index];
     const value = argv[index + 1];
     if (flag !== "--project-path" && flag !== "--unity-cli-path") {
-      throw new Error(`Unknown argument: ${flag ?? "<empty>"}`);
+      throw new Error(
+        boundedErrorMessage("Unknown argument: ", flag ?? "<empty>")
+      );
     }
     if (!value || value.startsWith("--")) {
       throw new Error(`${flag} requires a value.`);
@@ -19241,7 +19287,12 @@ function parseCompanionArguments(argv, isUnityProject = defaultUnityProjectValid
     throw new Error("--project-path must be absolute.");
   }
   if (!isUnityProject(projectPath)) {
-    throw new Error(`--project-path must identify an existing Unity project: ${projectPath}`);
+    throw new Error(
+      boundedErrorMessage(
+        "--project-path must identify an existing Unity project: ",
+        projectPath
+      )
+    );
   }
   if (unityCliPath && !path.isAbsolute(unityCliPath)) {
     throw new Error("--unity-cli-path must be absolute.");
@@ -19258,7 +19309,10 @@ async function checkUnityCli(command, runVersion = runUnityCliVersion, options =
     output = await runVersion(command, ["--version"], options);
   } catch (error2) {
     throw actionableCliError(
-      `Unity CLI could not be started at "${command}": ${errorMessage(error2)}`
+      boundedErrorMessage(
+        `Unity CLI could not be started at "${boundedErrorDetail(command)}": `,
+        error2
+      )
     );
   }
   const version2 = parseVersion(`${output.stdout}
@@ -19459,10 +19513,11 @@ async function runUnityCliVersion(command, args, options = {}, spawnProcess = sp
   });
 }
 function actionableCliError(message) {
-  return new Error(`${message} Install or update Unity CLI: ${CLI_DOCUMENTATION_URL}`);
-}
-function errorMessage(error2) {
-  return error2 instanceof Error ? error2.message : String(error2);
+  return new Error(
+    boundedErrorText(
+      `${message} Install or update Unity CLI: ${CLI_DOCUMENTATION_URL}`
+    )
+  );
 }
 
 // src/companionLifecycle.ts
@@ -19876,15 +19931,15 @@ var makeIssue = (params) => {
       message: issueData.message
     };
   }
-  let errorMessage5 = "";
+  let errorMessage = "";
   const maps = errorMaps.filter((m2) => !!m2).slice().reverse();
   for (const map of maps) {
-    errorMessage5 = map(fullIssue, { data, defaultError: errorMessage5 }).message;
+    errorMessage = map(fullIssue, { data, defaultError: errorMessage }).message;
   }
   return {
     ...issueData,
     path: fullPath,
-    message: errorMessage5
+    message: errorMessage
   };
 };
 function addIssueToContext(ctx, issueData) {
@@ -23631,19 +23686,19 @@ var getRefs = (options) => {
 };
 
 // node_modules/zod-to-json-schema/dist/esm/errorMessages.js
-function addErrorMessage(res, key, errorMessage5, refs) {
+function addErrorMessage(res, key, errorMessage, refs) {
   if (!refs?.errorMessages)
     return;
-  if (errorMessage5) {
+  if (errorMessage) {
     res.errorMessage = {
       ...res.errorMessage,
-      [key]: errorMessage5
+      [key]: errorMessage
     };
   }
 }
-function setResponseValueAndErrors(res, key, value, errorMessage5, refs) {
+function setResponseValueAndErrors(res, key, value, errorMessage, refs) {
   res[key] = value;
-  addErrorMessage(res, key, errorMessage5, refs);
+  addErrorMessage(res, key, errorMessage, refs);
 }
 
 // node_modules/zod-to-json-schema/dist/esm/getRelativePath.js
@@ -24954,8 +25009,8 @@ var Protocol = class {
                   if (queuedMessage.type === "response") {
                     resolver(message);
                   } else {
-                    const errorMessage5 = message;
-                    const error2 = new McpError(errorMessage5.error.code, errorMessage5.error.message, errorMessage5.error.data);
+                    const errorMessage = message;
+                    const error2 = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error2);
                   }
                 } else {
@@ -32493,23 +32548,23 @@ var Server = class extends Protocol {
       const wrappedHandler = async (request, extra) => {
         const validatedRequest = safeParse3(CallToolRequestSchema, request);
         if (!validatedRequest.success) {
-          const errorMessage5 = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-          throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage5}`);
+          const errorMessage = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+          throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
         }
         const { params } = validatedRequest.data;
         const result = await Promise.resolve(handler(request, extra));
         if (params.task) {
           const taskValidationResult = safeParse3(CreateTaskResultSchema, result);
           if (!taskValidationResult.success) {
-            const errorMessage5 = taskValidationResult.error instanceof Error ? taskValidationResult.error.message : String(taskValidationResult.error);
-            throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage5}`);
+            const errorMessage = taskValidationResult.error instanceof Error ? taskValidationResult.error.message : String(taskValidationResult.error);
+            throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
           }
           return taskValidationResult.data;
         }
         const validationResult = safeParse3(CallToolResultSchema, result);
         if (!validationResult.success) {
-          const errorMessage5 = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-          throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage5}`);
+          const errorMessage = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+          throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
         }
         return validationResult.data;
       };
@@ -33225,12 +33280,12 @@ var McpServer = class {
    * @param errorMessage - The error message.
    * @returns The tool error result.
    */
-  createToolError(errorMessage5) {
+  createToolError(errorMessage) {
     return {
       content: [
         {
           type: "text",
-          text: errorMessage5
+          text: errorMessage
         }
       ],
       isError: true
@@ -33248,8 +33303,8 @@ var McpServer = class {
     const parseResult = await safeParseAsync3(schemaToParse, args);
     if (!parseResult.success) {
       const error2 = "error" in parseResult ? parseResult.error : "Unknown error";
-      const errorMessage5 = getParseErrorMessage(error2);
-      throw new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage5}`);
+      const errorMessage = getParseErrorMessage(error2);
+      throw new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage}`);
     }
     return parseResult.data;
   }
@@ -33273,8 +33328,8 @@ var McpServer = class {
     const parseResult = await safeParseAsync3(outputObj, result.structuredContent);
     if (!parseResult.success) {
       const error2 = "error" in parseResult ? parseResult.error : "Unknown error";
-      const errorMessage5 = getParseErrorMessage(error2);
-      throw new McpError(ErrorCode.InvalidParams, `Output validation error: Invalid structured content for tool ${toolName}: ${errorMessage5}`);
+      const errorMessage = getParseErrorMessage(error2);
+      throw new McpError(ErrorCode.InvalidParams, `Output validation error: Invalid structured content for tool ${toolName}: ${errorMessage}`);
     }
   }
   /**
@@ -33486,8 +33541,8 @@ var McpServer = class {
         const parseResult = await safeParseAsync3(argsObj, request.params.arguments);
         if (!parseResult.success) {
           const error2 = "error" in parseResult ? parseResult.error : "Unknown error";
-          const errorMessage5 = getParseErrorMessage(error2);
-          throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for prompt ${request.params.name}: ${errorMessage5}`);
+          const errorMessage = getParseErrorMessage(error2);
+          throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for prompt ${request.params.name}: ${errorMessage}`);
         }
         const args = parseResult.data;
         const cb = prompt.callback;
@@ -33958,6 +34013,7 @@ var DASHBOARD_URI = "ui://unity-dashboard";
 function readDashboardHtml() {
   const moduleDirectory = path2.dirname(fileURLToPath(import.meta.url));
   const candidates = [
+    path2.join(moduleDirectory, "ui", "unity-dashboard.html"),
     path2.join(moduleDirectory, "..", "ui", "unity-dashboard.html"),
     path2.join(moduleDirectory, "..", "..", "src", "ui", "unity-dashboard.html")
   ];
@@ -34065,16 +34121,20 @@ function createCompanionServer(resources) {
         mimeType: "application/json"
       },
       async (uri) => {
-        const result = await resources.read(uri.toString());
-        return {
-          contents: [
-            {
-              uri: result.uri,
-              mimeType: "application/json",
-              text: JSON.stringify(result.payload)
-            }
-          ]
-        };
+        try {
+          const result = await resources.read(uri.toString());
+          return {
+            contents: [
+              {
+                uri: result.uri,
+                mimeType: "application/json",
+                text: JSON.stringify(result.payload)
+              }
+            ]
+          };
+        } catch (error2) {
+          throw boundedError(error2);
+        }
       }
     );
   }
@@ -34110,6 +34170,13 @@ var CompanionResourceService = class {
   }
   client;
   async read(uri) {
+    try {
+      return await this.readInternal(uri);
+    } catch (error2) {
+      throw boundedError(error2);
+    }
+  }
+  async readInternal(uri) {
     const parsed = parseResourceUri(uri);
     switch (parsed.hostname) {
       case "logs":
@@ -34180,7 +34247,7 @@ var CompanionResourceService = class {
     try {
       result = await this.client.readTool(command, args);
     } catch (error2) {
-      throw new Error(`${command} failed: ${errorMessage2(error2)}`);
+      throw new Error(boundedErrorMessage(`${command} failed: `, error2));
     }
     return {
       uri,
@@ -34191,7 +34258,7 @@ var CompanionResourceService = class {
 function decodeToolPayload(command, result) {
   if (result.isError) {
     const detail = firstText(result) ?? "Unity command returned an error.";
-    throw new Error(`${command} failed: ${detail}`);
+    throw new Error(boundedErrorMessage(`${command} failed: `, detail));
   }
   if (isRecord(result.structuredContent)) {
     return result.structuredContent;
@@ -34207,7 +34274,9 @@ function decodeToolPayload(command, result) {
     }
     return parsed;
   } catch (error2) {
-    throw new Error(`${command} returned malformed JSON: ${errorMessage2(error2)}`);
+    throw new Error(
+      boundedErrorMessage(`${command} returned malformed JSON: `, error2)
+    );
   }
 }
 function parseResourceUri(uri) {
@@ -34753,9 +34822,6 @@ function hasProjectionNotice(projection) {
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function errorMessage2(error2) {
-  return error2 instanceof Error ? error2.message : String(error2);
-}
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/client.js
 var ExperimentalClientTasks = class {
@@ -35049,8 +35115,8 @@ var Client = class extends Protocol {
       const wrappedHandler = async (request, extra) => {
         const validatedRequest = safeParse3(ElicitRequestSchema, request);
         if (!validatedRequest.success) {
-          const errorMessage5 = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-          throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage5}`);
+          const errorMessage = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+          throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
         }
         const { params } = validatedRequest.data;
         params.mode = params.mode ?? "form";
@@ -35065,15 +35131,15 @@ var Client = class extends Protocol {
         if (params.task) {
           const taskValidationResult = safeParse3(CreateTaskResultSchema, result);
           if (!taskValidationResult.success) {
-            const errorMessage5 = taskValidationResult.error instanceof Error ? taskValidationResult.error.message : String(taskValidationResult.error);
-            throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage5}`);
+            const errorMessage = taskValidationResult.error instanceof Error ? taskValidationResult.error.message : String(taskValidationResult.error);
+            throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
           }
           return taskValidationResult.data;
         }
         const validationResult = safeParse3(ElicitResultSchema, result);
         if (!validationResult.success) {
-          const errorMessage5 = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-          throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage5}`);
+          const errorMessage = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+          throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
         }
         const validatedResult = validationResult.data;
         const requestedSchema = params.mode === "form" ? params.requestedSchema : void 0;
@@ -35093,16 +35159,16 @@ var Client = class extends Protocol {
       const wrappedHandler = async (request, extra) => {
         const validatedRequest = safeParse3(CreateMessageRequestSchema, request);
         if (!validatedRequest.success) {
-          const errorMessage5 = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-          throw new McpError(ErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage5}`);
+          const errorMessage = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+          throw new McpError(ErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
         }
         const { params } = validatedRequest.data;
         const result = await Promise.resolve(handler(request, extra));
         if (params.task) {
           const taskValidationResult = safeParse3(CreateTaskResultSchema, result);
           if (!taskValidationResult.success) {
-            const errorMessage5 = taskValidationResult.error instanceof Error ? taskValidationResult.error.message : String(taskValidationResult.error);
-            throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage5}`);
+            const errorMessage = taskValidationResult.error instanceof Error ? taskValidationResult.error.message : String(taskValidationResult.error);
+            throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
           }
           return taskValidationResult.data;
         }
@@ -35110,8 +35176,8 @@ var Client = class extends Protocol {
         const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
         const validationResult = safeParse3(resultSchema, result);
         if (!validationResult.success) {
-          const errorMessage5 = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-          throw new McpError(ErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage5}`);
+          const errorMessage = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+          throw new McpError(ErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
         }
         return validationResult.data;
       };
@@ -35911,7 +35977,10 @@ async function teardownSdkSession(client, transport, deadlines) {
     );
   }
   throw new Error(
-    `Unity CLI transport teardown failed: ${errorMessage3(transportResult.reason)}`
+    boundedErrorMessage(
+      "Unity CLI transport teardown failed: ",
+      transportResult.reason
+    )
   );
 }
 function invokeClose(operation) {
@@ -35940,9 +36009,6 @@ function settleWithin(operation, timeoutMs) {
     );
   });
 }
-function errorMessage3(error2) {
-  return error2 instanceof Error ? error2.message : String(error2);
-}
 
 // src/companionEntrypoint.ts
 async function startCompanion(options) {
@@ -35967,7 +36033,7 @@ async function startCompanion(options) {
     closeOfficialClient: () => officialClient.close(),
     closeServer: () => server.close(),
     onError: (error2) => {
-      options.stderr.write(`Shutdown error: ${errorMessage4(error2)}
+      options.stderr.write(`Shutdown error: ${boundedErrorDetail(error2)}
 `);
     }
   });
@@ -35978,9 +36044,6 @@ async function startCompanion(options) {
       handlers.dispose();
     }
   };
-}
-function errorMessage4(error2) {
-  return error2 instanceof Error ? error2.message : String(error2);
 }
 
 // src/index.ts
@@ -35995,7 +36058,7 @@ try {
   });
 } catch (error2) {
   process.stderr.write(
-    `MCP Unity Companion could not start: ${error2 instanceof Error ? error2.message : String(error2)}
+    `${boundedErrorMessage("MCP Unity Companion could not start: ", error2)}
 `
   );
   process.exitCode = 1;

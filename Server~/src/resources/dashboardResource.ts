@@ -8,6 +8,7 @@ export const DASHBOARD_URI = 'ui://unity-dashboard';
 export function readDashboardHtml(): { text: string; mimeType: string } {
   const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
+    path.join(moduleDirectory, 'ui', 'unity-dashboard.html'),
     path.join(moduleDirectory, '..', 'ui', 'unity-dashboard.html'),
     path.join(moduleDirectory, '..', '..', 'src', 'ui', 'unity-dashboard.html'),
   ];

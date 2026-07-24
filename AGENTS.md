@@ -115,7 +115,7 @@ cd Server~
 npm ci
 npm test -- --runInBand --detectOpenHandles
 npm run build
-npm audit
+npm audit --omit=dev
 ```
 
 The pinned MCP SDK currently reports two moderate advisories through an unused Hono HTTP adapter. The companion is stdio-only. Record the audit result; do not change the mandated SDK pin without a compatibility upgrade task.

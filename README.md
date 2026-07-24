@@ -41,7 +41,7 @@ Unity CLI is machine-level software and is never downloaded or installed by this
 4. Install Unity CLI by following the [official Unity CLI documentation](https://docs.unity.com/en-us/unity-cli/use-unity-cli).
 5. Open `Window > MCP Unity > Setup`.
 
-The Setup window is user-initiated and never opens on import. It shows the project and resolved Pipeline paths, checks only `unity --version`, and can copy official installation or MCP configuration text. It does not execute installers, request elevation, modify PATH, change shell files, run upgrades, write client configuration, or store a machine-specific CLI path in project settings.
+The Setup window is user-initiated and never opens on import. It displays the current project path and the resolved Pipeline version and compatibility state, checks only `unity --version`, and can copy official installation or MCP configuration text. It does not display the resolved package filesystem path; it uses the package resolver path internally when it generates companion configuration. It does not execute installers, request elevation, modify PATH, change shell files, run upgrades, write client configuration, or store a machine-specific CLI path in project settings.
 
 CLI lookup order is:
 
@@ -78,7 +78,7 @@ A JSON-based MCP client can use:
 }
 ```
 
-If Unity CLI is not on `PATH`, set the MCP client's command to its absolute executable path or arrange `UNITY_CLI_PATH` in the launch environment. The Setup window copies, but never writes, this configuration.
+If Unity CLI is not on `PATH`, set the MCP client's `command` to the absolute executable path. Otherwise, ensure `unity` is available on the MCP client's `PATH`. The Setup window copies, but never writes, this configuration.
 
 ## MCP Unity extension commands
 
@@ -98,7 +98,7 @@ All other Editor operations use commands supplied by `com.unity.pipeline@0.3.1-e
 
 The companion requires `--project-path <absolute-path>` and accepts `--unity-cli-path <absolute-path>`. Its lookup order is the argument, `UNITY_CLI_PATH`, then `unity` from `PATH`. It validates Unity CLI 1.0.0-beta.2 or newer and never installs it.
 
-Resolve the package path shown by `Window > MCP Unity > Setup`, then configure:
+Open `Window > MCP Unity > Setup` and use its copy action to generate this configuration from the package path it resolves internally:
 
 ```json
 {
@@ -172,7 +172,7 @@ After installation, CI should run `unity --version` and require Unity CLI 1.0.0-
 
 ## Migration from 1.4.0
 
-The table is intentionally exhaustive. Its inventory is enforced against the actual tool constants, resource registrations, prompt registrations, URI templates, and settings fields in the `1.4.0` tag.
+The table is intentionally exhaustive. Its checked-in inventory is enforced against the actual tool constants, resource registrations, prompt registrations, URI templates, settings fields, environment variables, deployment files, and registry metadata in the `1.4.0` tag whenever that tag object is available. Shallow clones and packaged copies use the same immutable inventory snapshot.
 
 ### Tools
 
@@ -248,12 +248,20 @@ The table is intentionally exhaustive. Its inventory is enforced against the act
 | `config:EnableInfoLogs` | Removed; use Unity CLI and Editor logging. |
 | `config:NpmExecutablePath` | Removed; the Unity package does not run npm. |
 | `config:AllowRemoteConnections` | Removed; run the CLI on the Unity host and connect through SSH/external agent infrastructure. |
-| `concept:UNITY_HOST` | Removed; there is no host override for an Editor socket. |
-| `concept:ProjectSettings/McpUnitySettings.json` | Removed and never created. |
-| `concept:Unity-driven npm install/build` | Removed; the bundled companion build is shipped in `Server~/build`, and maintainers build it outside Unity. |
-| `concept:automatic MCP-client configuration` | Removed; `Window > MCP Unity > Setup` only copies configuration after a user action. |
-| `concept:PackedCache mutation` | Removed; MCP Unity never edits IDE workspaces or PackedCache references. |
-| `concept:custom WebSocket endpoint/port` | Removed; Unity CLI/Pipeline own communication and the old endpoint is not opened. |
+| `concept:env:UNITY_HOST` | Removed; there is no host override for an Editor socket. Run Unity CLI on the Editor host. |
+| `concept:env:LOGGING` | Removed with the legacy Node logger. Use Unity CLI, MCP-host, and Editor logging. |
+| `concept:env:LOGGING_FILE` | Removed with legacy `log.txt` output. Direct logs through the MCP host/CI environment instead. |
+| `concept:path:ProjectSettings/McpUnitySettings.json` | Removed and never created. |
+| `concept:integration:Unity-driven npm install/build` | Removed; the bundled companion build is shipped in `Server~/build`, and maintainers build it outside Unity. |
+| `concept:integration:automatic MCP-client configuration` | Removed; `Window > MCP Unity > Setup` only copies configuration after a user action. |
+| `concept:integration:PackedCache mutation` | Removed; MCP Unity never edits IDE workspaces or PackedCache references. |
+| `concept:integration:custom WebSocket endpoint/port` | Removed; Unity CLI/Pipeline own communication and the old endpoint and port 8090 are not opened. |
+| `concept:integration:Docker deployment/Dockerfile/exposed ports` | Removed. No Docker image or exposed bridge/health ports are shipped; install and run Unity CLI on the Unity host or through external agent infrastructure. |
+| `concept:integration:Smithery configuration` | Removed. Configure the primary CLI or optional companion directly in the MCP host; no Smithery manifest is shipped. |
+| `concept:integration:Node npm executable/bin/publication surface` | Removed. The companion is private, has no npm `bin`, `files`, or publication configuration, and is launched from its bundled `Server~/build/index.js`. |
+| `concept:integration:MCP registry server.json` | The invalid registry manifest was already absent from the final 1.4.0 tag and remains unsupported in 2.0. |
+| `concept:integration:MCP registry mcpName/mcpname` | Removed from both Unity and Node package metadata; 2.0 is not an npm-published MCP server. |
+| `concept:integration:Glama registry metadata` | Removed; the package no longer advertises a registry-hosted server through Glama metadata. |
 
 Old tool aliases are not retained. Update prompts and client automation to the replacement names above before upgrading.
 
@@ -266,7 +274,7 @@ cd Server~
 npm ci
 npm test -- --runInBand --detectOpenHandles
 npm run build
-npm audit
+npm audit --omit=dev
 ```
 
 Run Unity EditMode tests from the Editor Test Runner or in batch mode on all supported lines:

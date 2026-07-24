@@ -9,6 +9,13 @@ const serverRoot = path.resolve(
   '..',
 );
 const repositoryRoot = path.resolve(serverRoot, '..');
+const legacySnapshotPath = path.join(
+  serverRoot,
+  'src',
+  '__tests__',
+  'fixtures',
+  'legacy-1.4.0-inventory.json',
+);
 
 const readRepositoryFile = (relativePath: string): string =>
   fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
@@ -99,12 +106,20 @@ const legacySettings = [
 ] as const;
 
 const legacyConcepts = [
-  'UNITY_HOST',
-  'ProjectSettings/McpUnitySettings.json',
-  'Unity-driven npm install/build',
-  'automatic MCP-client configuration',
-  'PackedCache mutation',
-  'custom WebSocket endpoint/port',
+  'env:UNITY_HOST',
+  'env:LOGGING',
+  'env:LOGGING_FILE',
+  'path:ProjectSettings/McpUnitySettings.json',
+  'integration:Unity-driven npm install/build',
+  'integration:automatic MCP-client configuration',
+  'integration:PackedCache mutation',
+  'integration:custom WebSocket endpoint/port',
+  'integration:Docker deployment/Dockerfile/exposed ports',
+  'integration:Smithery configuration',
+  'integration:Node npm executable/bin/publication surface',
+  'integration:MCP registry server.json',
+  'integration:MCP registry mcpName/mcpname',
+  'integration:Glama registry metadata',
 ] as const;
 
 const extensionCommands = [
@@ -124,6 +139,33 @@ const companionResources = [
   'ui://unity-dashboard',
 ] as const;
 
+const companionTools = ['show_unity_dashboard'] as const;
+const companionPrompts = [
+  'gameobject_handling_strategy',
+  'unity_dashboard',
+] as const;
+
+interface LegacyEvidence {
+  path: string;
+  contains?: string;
+  absent?: boolean;
+}
+
+interface LegacySnapshot {
+  schemaVersion: number;
+  sourceTag: string;
+  sourceCommit: string;
+  tools: string[];
+  resources: string[];
+  uris: string[];
+  prompts: string[];
+  settings: string[];
+  integrations: Array<{
+    id: string;
+    evidence: LegacyEvidence[];
+  }>;
+}
+
 describe('2.0 release contract', () => {
   test('keeps release metadata synchronized and private', () => {
     expect(rootPackage).toMatchObject({
@@ -139,8 +181,13 @@ describe('2.0 release contract', () => {
       version: '2.0.0',
       private: true,
     });
-    expect(rootPackage).not.toHaveProperty('mcpname');
-    expect(companionPackage).not.toHaveProperty('bin');
+    for (const property of ['mcpName', 'mcpname']) {
+      expect(rootPackage).not.toHaveProperty(property);
+      expect(companionPackage).not.toHaveProperty(property);
+    }
+    for (const property of ['bin', 'files', 'publishConfig']) {
+      expect(companionPackage).not.toHaveProperty(property);
+    }
     expect(fs.existsSync(path.join(repositoryRoot, 'server.json'))).toBe(false);
     expect(fs.existsSync(path.join(repositoryRoot, 'glama.json'))).toBe(false);
 
@@ -154,20 +201,37 @@ describe('2.0 release contract', () => {
     }
   });
 
-  test('derives the complete migration inventory from the 1.4.0 tag', () => {
-    // Git metadata is present in repository CI and proves this snapshot against
-    // the release tag. UPM package archives intentionally omit .git; the
-    // embedded inventory still drives all migration-row assertions there.
-    if (!fs.existsSync(path.join(repositoryRoot, '.git'))) return;
+  test('ships an immutable 1.4.0 snapshot and validates it when the tag is available', () => {
+    expect(fs.existsSync(legacySnapshotPath)).toBe(true);
+    if (!fs.existsSync(legacySnapshotPath)) return;
 
-    const files = gitLines(
-      'ls-tree',
-      '-r',
-      '--name-only',
-      '1.4.0',
-      'Server~/src/tools',
-      'Server~/src/resources',
-      'Server~/src/prompts',
+    const snapshot = JSON.parse(
+      fs.readFileSync(legacySnapshotPath, 'utf8'),
+    ) as LegacySnapshot;
+    expect(snapshot).toMatchObject({
+      schemaVersion: 1,
+      sourceTag: '1.4.0',
+      sourceCommit: 'bbfb1c0681519ced5b357ce7cc3c1ee68c9dc64e',
+    });
+    expect(snapshot.tools.sort()).toEqual([...legacyTools].sort());
+    expect(snapshot.resources.sort()).toEqual([...legacyResources].sort());
+    expect(snapshot.uris.sort()).toEqual([...legacyUris].sort());
+    expect(snapshot.prompts.sort()).toEqual([...legacyPrompts].sort());
+    expect(snapshot.settings.sort()).toEqual([...legacySettings].sort());
+    expect(snapshot.integrations.map(({ id }) => id).sort()).toEqual(
+      [...legacyConcepts].sort(),
+    );
+
+    // Shallow clones and packaged UPM copies may not contain the tag object.
+    // In those environments the checked-in snapshot above remains mandatory
+    // and continues to drive every migration-table assertion.
+    if (!gitObjectExists('1.4.0^{commit}')) return;
+
+    expect(git('rev-parse', '1.4.0^{commit}').trim()).toBe(
+      snapshot.sourceCommit,
+    );
+    const files = registeredCatalogModules(
+      git('show', '1.4.0:Server~/src/index.ts'),
     );
     const inventory = {
       tools: new Set<string>(),
@@ -220,6 +284,18 @@ describe('2.0 release contract', () => {
     expect([...inventory.uris].sort()).toEqual([...legacyUris].sort());
     expect([...inventory.prompts].sort()).toEqual([...legacyPrompts].sort());
     expect([...discoveredSettings].sort()).toEqual([...legacySettings].sort());
+
+    for (const integration of snapshot.integrations) {
+      for (const evidence of integration.evidence) {
+        const exists = gitObjectExists(`1.4.0:${evidence.path}`);
+        expect(exists).toBe(!evidence.absent);
+        if (!evidence.absent && evidence.contains) {
+          expect(git('show', `1.4.0:${evidence.path}`)).toContain(
+            evidence.contains,
+          );
+        }
+      }
+    }
   });
 
   test('maps every 1.4.0 catalog and configuration concept', () => {
@@ -249,21 +325,87 @@ describe('2.0 release contract', () => {
       '## Migration from 1.4.0',
     );
 
-    for (const command of extensionCommands) {
-      expect(extensionSection).toContain(`\`${command}\``);
+    expect(markdownDashCatalog(extensionSection)).toEqual(
+      sorted(extensionCommands),
+    );
+    expect(markdownLabeledCatalog(companionSection, 'Tool')).toEqual(
+      sorted(companionTools),
+    );
+    expect(markdownNestedCatalog(companionSection, 'Resources')).toEqual(
+      sorted(companionResources),
+    );
+    expect(markdownNestedCatalog(companionSection, 'Prompts')).toEqual(
+      sorted(companionPrompts),
+    );
+  });
+
+  test('keeps runtime and documented public catalogs exact', () => {
+    const commandNames = new Set<string>();
+    for (const file of walkFiles(path.join(repositoryRoot, 'Editor', 'Commands'))) {
+      if (!file.endsWith('.cs')) continue;
+      collectMatches(
+        commandNames,
+        fs.readFileSync(file, 'utf8'),
+        /\[CliCommand\(\s*"([a-z0-9_]+)"/g,
+      );
     }
-    for (const legacyTool of legacyTools) {
-      if (!extensionCommands.includes(legacyTool as (typeof extensionCommands)[number])) {
-        expect(extensionSection).not.toContain(`\`${legacyTool}\``);
-      }
-    }
-    for (const resource of companionResources) {
-      expect(companionSection).toContain(`\`${resource}\``);
-    }
-    for (const prompt of legacyPrompts) {
-      expect(companionSection).toContain(`\`${prompt}\``);
-    }
-    expect(companionSection).toContain('`show_unity_dashboard`');
+    expect(sorted(commandNames)).toEqual(sorted(extensionCommands));
+
+    const companionSource = readRepositoryFile('Server~/src/companionServer.ts');
+    const dashboardSource = readRepositoryFile(
+      'Server~/src/resources/dashboardResource.ts',
+    );
+    const promptSource = readRepositoryFile(
+      'Server~/src/prompts/companionPrompts.ts',
+    );
+    const runtimeTools = new Set<string>();
+    const runtimeResources = new Set<string>();
+    const runtimePrompts = new Set<string>();
+    collectMatches(
+      runtimeTools,
+      companionSource,
+      /registerAppTool\(\s*server,\s*'([^']+)'/g,
+    );
+    collectMatches(
+      runtimeResources,
+      companionSource,
+      /template:\s*'((?:unity|ui):\/\/[^']+)'/g,
+    );
+    collectMatches(
+      runtimeResources,
+      dashboardSource,
+      /DASHBOARD_URI\s*=\s*'((?:unity|ui):\/\/[^']+)'/g,
+    );
+    collectMatches(
+      runtimePrompts,
+      promptSource,
+      /server\.registerPrompt\(\s*'([^']+)'/g,
+    );
+
+    expect(sorted(runtimeTools)).toEqual(sorted(companionTools));
+    expect(sorted(runtimeResources)).toEqual(sorted(companionResources));
+    expect(sorted(runtimePrompts)).toEqual(sorted(companionPrompts));
+
+    const agentsCatalog = markdownSection(
+      agents,
+      '## Public catalogs',
+      '## Adding or changing an extension command',
+    );
+    const [agentsExtensions, agentsCompanion = ''] = agentsCatalog.split(
+      'The optional companion exposes only:',
+    );
+    expect(markdownPlainCatalog(agentsExtensions)).toEqual(
+      sorted(extensionCommands),
+    );
+    expect(markdownLowercaseLabeledCatalog(agentsCompanion, 'tool')).toEqual(
+      sorted(companionTools),
+    );
+    expect(markdownNestedCatalog(agentsCompanion, 'resources')).toEqual(
+      sorted(companionResources),
+    );
+    expect(markdownNestedCatalog(agentsCompanion, 'prompts')).toEqual(
+      sorted(companionPrompts),
+    );
   });
 
   test('keeps README and AGENTS aligned on pins and architecture', () => {
@@ -277,6 +419,49 @@ describe('2.0 release contract', () => {
       expect(document).toContain('Unity 6000.5');
       expect(document).toContain('Window > MCP Unity > Setup');
       expect(document).toContain('unity mcp --project-path');
+      expect(document).toContain('npm audit --omit=dev');
+    }
+    expect(readme).toContain(
+      'current project path and the resolved Pipeline version and compatibility state',
+    );
+    expect(readme).toContain(
+      'uses the package resolver path internally when it generates companion configuration',
+    );
+    expect(readme).not.toContain('shows the project and resolved Pipeline paths');
+    expect(readme).not.toContain('package path shown by');
+
+    const primaryConfiguration = markdownSection(
+      readme,
+      '## Configure the primary MCP server',
+      '## MCP Unity extension commands',
+    );
+    expect(primaryConfiguration).not.toContain('UNITY_CLI_PATH');
+    expect(primaryConfiguration).toContain('absolute executable path');
+    expect(primaryConfiguration).toContain('`PATH`');
+  });
+
+  test('keeps every AI guidance file anchored to the 2.0 maintainer guide', () => {
+    const guidanceFiles = walkFiles(repositoryRoot)
+      .map((file) => path.relative(repositoryRoot, file))
+      .filter(isAiGuidanceFile);
+
+    expect(guidanceFiles).toEqual(
+      expect.arrayContaining(['.windsurfrules', 'AGENTS.md', 'CLAUDE.md', 'llms.txt']),
+    );
+    for (const relativePath of guidanceFiles) {
+      if (relativePath === 'AGENTS.md') continue;
+      const content = readRepositoryFile(relativePath);
+      expect(content).toContain('AGENTS.md');
+      for (const staleMarker of [
+        'McpUnityServer.cs',
+        'McpToolBase',
+        'McpUnitySettings.json',
+        'websocket-sharp',
+        'WebSocket Bridge',
+        'default 8090',
+      ]) {
+        expect(content).not.toContain(staleMarker);
+      }
     }
   });
 
@@ -291,22 +476,41 @@ describe('2.0 release contract', () => {
       'Server~/src/tools',
       'Server~/src/unity/mcpUnity.ts',
       'Server~/src/unity/commandQueue.ts',
+      'Server~/Dockerfile',
+      'Server~/smithery.yaml',
     ];
+    const repositoryFiles = walkFiles(repositoryRoot);
+    const normalizedFiles = repositoryFiles.map((file) =>
+      path.relative(repositoryRoot, file).split(path.sep).join('/').toLowerCase(),
+    );
     for (const relativePath of forbiddenPaths) {
-      expect(fs.existsSync(path.join(repositoryRoot, relativePath))).toBe(false);
+      const forbidden = relativePath.toLowerCase();
+      expect(
+        normalizedFiles.some(
+          (file) => file === forbidden || file.startsWith(`${forbidden}/`),
+        ),
+      ).toBe(false);
     }
+    expect(
+      normalizedFiles.some(
+        (file) =>
+          file.includes('websocket-sharp') ||
+          file.includes('websocketsharp'),
+      ),
+    ).toBe(false);
 
-    const productionText = walkFiles(repositoryRoot)
+    const productionText = repositoryFiles
       .filter((file) => {
         const relative = path.relative(repositoryRoot, file);
+        const normalized = relative.split(path.sep).join('/').toLowerCase();
         return (
-          !relative.includes(`${path.sep}__tests__${path.sep}`) &&
-          !relative.startsWith(`docs${path.sep}`) &&
-          !relative.endsWith('.md') &&
-          !relative.endsWith('.meta') &&
-          !relative.includes(`${path.sep}build${path.sep}`) &&
-          !relative.includes(`${path.sep}node_modules${path.sep}`) &&
-          /\.(?:cs|ts|json|asmdef)$/.test(relative)
+          !normalized.includes('/__tests__/') &&
+          !normalized.startsWith('docs/') &&
+          !normalized.endsWith('.md') &&
+          !normalized.endsWith('.meta') &&
+          !normalized.includes('/build/') &&
+          !normalized.includes('/node_modules/') &&
+          isProductionSourceOrConfig(normalized)
         );
       })
       .map((file) => fs.readFileSync(file, 'utf8'))
@@ -323,6 +527,7 @@ describe('2.0 release contract', () => {
     ]) {
       expect(productionText).not.toContain(forbiddenText);
     }
+    expect(productionText).not.toMatch(/(^|[^0-9])8090([^0-9]|$)/);
   });
 
   test('marks untranslated readmes as legacy documentation', () => {
@@ -343,8 +548,16 @@ function git(...args: string[]): string {
   });
 }
 
-function gitLines(...args: string[]): string[] {
-  return git(...args).trim().split(/\r?\n/).filter(Boolean);
+function gitObjectExists(objectName: string): boolean {
+  try {
+    execFileSync('git', ['cat-file', '-e', objectName], {
+      cwd: repositoryRoot,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function collectMatches(
@@ -355,8 +568,82 @@ function collectMatches(
   for (const match of source.matchAll(pattern)) target.add(match[1]);
 }
 
+function registeredCatalogModules(indexSource: string): string[] {
+  const modules = new Set<string>();
+  for (const match of indexSource.matchAll(
+    /import\s+\{([^}]+)\}\s+from\s+['"]\.\/(tools|resources|prompts)\/([^'"]+)\.js['"]/g,
+  )) {
+    const importedNames = match[1]
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const remainingIndex = indexSource.slice(match.index + match[0].length);
+    for (const importedName of importedNames) {
+      expect(remainingIndex).toMatch(
+        new RegExp(`\\b${escapeRegExp(importedName)}\\s*\\(`),
+      );
+    }
+    modules.add(`Server~/src/${match[2]}/${match[3]}.ts`);
+  }
+  return [...modules].sort();
+}
+
 function expectMigrationRow(concept: string): void {
   expect(readme).toContain(`| \`${concept}\` |`);
+}
+
+function markdownDashCatalog(markdown: string): string[] {
+  return [...markdown.matchAll(/^- `([^`]+)` —/gm)]
+    .map((match) => match[1])
+    .sort();
+}
+
+function markdownPlainCatalog(markdown: string): string[] {
+  return [...markdown.matchAll(/^- `([^`]+)`$/gm)]
+    .map((match) => match[1])
+    .sort();
+}
+
+function markdownLabeledCatalog(markdown: string, label: string): string[] {
+  const pattern = new RegExp(`^- ${escapeRegExp(label)}: \`([^\`]+)\`$`, 'gm');
+  return [...markdown.matchAll(pattern)].map((match) => match[1]).sort();
+}
+
+function markdownLowercaseLabeledCatalog(
+  markdown: string,
+  label: string,
+): string[] {
+  const pattern = new RegExp(`^- ${escapeRegExp(label)} \`([^\`]+)\`$`, 'gm');
+  return [...markdown.matchAll(pattern)].map((match) => match[1]).sort();
+}
+
+function markdownNestedCatalog(markdown: string, label: string): string[] {
+  const lines = markdown.split(/\r?\n/);
+  const start = lines.findIndex((line) => line === `- ${label}:`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const values: string[] = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const match = lines[index].match(/^  - `([^`]+)`$/);
+    if (!match) break;
+    values.push(match[1]);
+  }
+  return values.sort();
+}
+
+function sorted(values: Iterable<string>): string[] {
+  return [...values].sort();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isProductionSourceOrConfig(relativePath: string): boolean {
+  const baseName = path.posix.basename(relativePath);
+  return (
+    /\.(?:asmdef|cs|js|json|mjs|ps1|sh|ts|xml|yaml|yml)$/.test(relativePath) ||
+    baseName === 'dockerfile'
+  );
 }
 
 function markdownSection(
@@ -371,10 +658,22 @@ function markdownSection(
   return markdown.slice(start, end);
 }
 
+function isAiGuidanceFile(relativePath: string): boolean {
+  const normalized = relativePath.split(path.sep).join('/').toLowerCase();
+  const baseName = path.posix.basename(normalized);
+  return (
+    ['.cursorrules', '.windsurfrules', 'agents.md', 'claude.md', 'gemini.md', 'llms.txt'].includes(
+      baseName,
+    ) || normalized.endsWith('/copilot-instructions.md')
+  );
+}
+
 function walkFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     if (
-      ['.git', '.superpowers', 'build', 'node_modules'].includes(entry.name)
+      ['.git', '.superpowers', 'build', 'node_modules'].includes(
+        entry.name.toLowerCase(),
+      )
     ) {
       return [];
     }

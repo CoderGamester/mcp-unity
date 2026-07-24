@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using McpUnity.Extensions.Commands;
@@ -141,6 +142,89 @@ namespace McpUnity.Extensions.Tests
                 Does.Not.Contain("m_Script"));
         }
 
+        [Test]
+        public void Inspect_BoundsLargeStringsCollectionsAndNestedValuesWithExplicitMarkers()
+        {
+            var root = new GameObject("Root");
+            var fixture = root.AddComponent<LargeInspectionFixtureComponent>();
+            fixture.LargeString = new string('x', 5000);
+            fixture.LargeArray = Enumerable.Range(0, 150).ToArray();
+
+            var result = InspectGameObjectCommand.Inspect(
+                Ref(root),
+                includeProperties: true,
+                maxPropertiesPerComponent: 10);
+
+            var components = Property<IList>(result.Root, "Components");
+            var component = components.Cast<object>()
+                .Single(item => Property<string>(item, "Type") == nameof(LargeInspectionFixtureComponent));
+            var properties = Property<IList>(component, "Properties").Cast<object>().ToList();
+
+            var largeString = properties.Single(item => Property<string>(item, "Path") == "LargeString");
+            Assert.That(Property<string>(largeString, "Value"), Has.Length.EqualTo(4096));
+            AssertValueTruncation(largeString, "stringLength", 4096, 5000);
+
+            var largeArray = properties.Single(item => Property<string>(item, "Path") == "LargeArray");
+            Assert.That(Property<IList>(largeArray, "Value"), Has.Count.EqualTo(100));
+            AssertValueTruncation(largeArray, "collectionLength", 100, 150);
+
+            var nested = properties.Single(item => Property<string>(item, "Path") == "Nested");
+            AssertValueTruncation(nested, "serializationDepth", 4, null);
+        }
+
+        [Test]
+        public void Inspect_StopsConvertingValuesAfterFirstSupportedPropertyBeyondCap()
+        {
+            var root = new GameObject("Root");
+            root.AddComponent<InspectionFixtureComponent>();
+            var readerType = typeof(InspectGameObjectCommand).Assembly.GetType(
+                "McpUnity.Extensions.Commands.SerializedPropertyValueReader",
+                throwOnError: true);
+            var observer = readerType.GetProperty(
+                "ConversionObserver",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.That(observer, Is.Not.Null, "Expected an internal value-conversion test seam.");
+
+            var convertedPaths = new List<string>();
+            observer.SetValue(null, (Action<string>)(path => convertedPaths.Add(path)));
+            try
+            {
+                var result = InspectGameObjectCommand.Inspect(
+                    Ref(root),
+                    includeProperties: true,
+                    maxPropertiesPerComponent: 1);
+
+                var component = result.Root.Components
+                    .Single(item => item.Type == nameof(InspectionFixtureComponent));
+                Assert.That(component.PropertiesTruncated, Is.True);
+            }
+            finally
+            {
+                observer.SetValue(null, null);
+            }
+
+            Assert.That(
+                convertedPaths.Where(path =>
+                    path == "First" ||
+                    path == "Second" ||
+                    path == "Third"),
+                Is.EqualTo(new[] { "First" }),
+                "The omitted property and all later values must not be materialized.");
+        }
+
+        private static void AssertValueTruncation(
+            object property,
+            string reason,
+            int limit,
+            int? originalCount)
+        {
+            Assert.That(Property<bool>(property, "ValueTruncated"), Is.True);
+            var markers = Property<IList>(property, "ValueTruncations").Cast<object>().ToList();
+            var marker = markers.Single(item => Property<string>(item, "Reason") == reason);
+            Assert.That(Property<int>(marker, "Limit"), Is.EqualTo(limit));
+            Assert.That(Property<int?>(marker, "OriginalCount"), Is.EqualTo(originalCount));
+        }
+
         private static ObjectRef Ref(UnityEngine.Object obj) =>
             new ObjectRef { InstanceId = PipelineUtils.GetObjectId(obj) };
 
@@ -161,5 +245,42 @@ namespace McpUnity.Extensions.Tests
         public string Second = "two";
         public Vector3 Third = Vector3.one;
         public AnimationCurve Unsupported = AnimationCurve.Linear(0f, 0f, 1f, 1f);
+    }
+
+    public sealed class LargeInspectionFixtureComponent : MonoBehaviour
+    {
+        public string LargeString;
+        public int[] LargeArray;
+        public InspectionNestedLevel1 Nested = new InspectionNestedLevel1();
+    }
+
+    [Serializable]
+    public sealed class InspectionNestedLevel1
+    {
+        public InspectionNestedLevel2 Child = new InspectionNestedLevel2();
+    }
+
+    [Serializable]
+    public sealed class InspectionNestedLevel2
+    {
+        public InspectionNestedLevel3 Child = new InspectionNestedLevel3();
+    }
+
+    [Serializable]
+    public sealed class InspectionNestedLevel3
+    {
+        public InspectionNestedLevel4 Child = new InspectionNestedLevel4();
+    }
+
+    [Serializable]
+    public sealed class InspectionNestedLevel4
+    {
+        public InspectionNestedLevel5 Child = new InspectionNestedLevel5();
+    }
+
+    [Serializable]
+    public sealed class InspectionNestedLevel5
+    {
+        public int Value = 42;
     }
 }

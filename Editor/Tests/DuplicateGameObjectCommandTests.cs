@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using McpUnity.Extensions.Commands;
 using NUnit.Framework;
 using Unity.Pipeline;
@@ -7,11 +8,15 @@ using Unity.Pipeline.Models;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.TestTools;
 
 namespace McpUnity.Extensions.Tests
 {
     public class DuplicateGameObjectCommandTests
     {
+        private const string ActiveScenePath = "Assets/__McpUnityDuplicateActiveScene.unity";
+
         [SetUp]
         public void SetUp()
         {
@@ -23,6 +28,7 @@ namespace McpUnity.Extensions.Tests
         public void TearDown()
         {
             Undo.ClearAll();
+            AssetDatabase.DeleteAsset(ActiveScenePath);
         }
 
         [Test]
@@ -105,6 +111,62 @@ namespace McpUnity.Extensions.Tests
 
             Assert.That(PipelineUtils.IdToObject(result.InstanceId.Value), Is.Null);
             Assert.That(source, Is.Not.Null, "Undo should remove only the duplicate.");
+        }
+
+        [UnityTest]
+        public IEnumerator Duplicate_UndoRedoRestoresConfiguredStateFromNonActiveSourceScene()
+        {
+            var activeScene = SceneManager.GetActiveScene();
+            Assert.That(EditorSceneManager.SaveScene(activeScene, ActiveScenePath), Is.True);
+            var sourceScene = EditorSceneManager.NewScene(
+                NewSceneSetup.EmptyScene,
+                NewSceneMode.Additive);
+            Assert.That(SceneManager.SetActiveScene(activeScene), Is.True);
+
+            var parent = new GameObject("DestinationParent");
+            parent.transform.position = new Vector3(10f, 20f, 30f);
+
+            var source = new GameObject("Source");
+            source.transform.localPosition = new Vector3(1f, 2f, 3f);
+            source.transform.localRotation = Quaternion.Euler(15f, 25f, 35f);
+            source.transform.localScale = new Vector3(2f, 3f, 4f);
+            SceneManager.MoveGameObjectToScene(source, sourceScene);
+            Assert.That(SceneManager.GetActiveScene(), Is.Not.EqualTo(sourceScene));
+
+            DuplicateGameObjectCommand.Duplicate(
+                Ref(source),
+                parent: Ref(parent),
+                name: "RestoredCopy");
+            yield return null;
+
+            var duplicate = parent.transform.Find("RestoredCopy");
+            Assert.That(duplicate, Is.Not.Null);
+            AssertConfiguredState(duplicate, activeScene, parent.transform, source.transform);
+
+            Undo.PerformUndo();
+            yield return null;
+            Assert.That(parent.transform.Find("RestoredCopy"), Is.Null);
+
+            Undo.PerformRedo();
+            yield return null;
+            var restored = parent.transform.Find("RestoredCopy");
+            Assert.That(restored, Is.Not.Null);
+            AssertConfiguredState(restored, activeScene, parent.transform, source.transform);
+        }
+
+        private static void AssertConfiguredState(
+            Transform actual,
+            Scene expectedScene,
+            Transform expectedParent,
+            Transform expectedTransform)
+        {
+            Assert.That(actual.gameObject.scene, Is.EqualTo(expectedScene));
+            Assert.That(actual.parent, Is.SameAs(expectedParent));
+            Assert.That(actual.name, Is.EqualTo("RestoredCopy"));
+            Assert.That(actual.localPosition, Is.EqualTo(expectedTransform.localPosition));
+            Assert.That(Quaternion.Angle(actual.localRotation, expectedTransform.localRotation),
+                Is.LessThan(0.001f));
+            Assert.That(actual.localScale, Is.EqualTo(expectedTransform.localScale));
         }
 
         private static ObjectRef Ref(UnityEngine.Object obj) =>

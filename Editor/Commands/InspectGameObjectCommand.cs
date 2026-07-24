@@ -159,22 +159,27 @@ namespace McpUnity.Extensions.Commands
                     if (iterator.propertyPath == "m_Script")
                         continue;
 
-                    if (!SerializedPropertyValueReader.TryRead(iterator, out var value))
+                    if (!SerializedPropertyValueReader.CanRead(iterator))
                         continue;
 
                     summary.SerializedPropertyCount++;
                     if (summary.Properties.Count >= maxProperties)
                     {
                         summary.PropertiesTruncated = true;
-                        continue;
+                        break;
                     }
+
+                    if (!SerializedPropertyValueReader.TryRead(iterator, out var readResult))
+                        continue;
 
                     summary.Properties.Add(new SerializedPropertyInspection
                     {
                         Name = iterator.displayName,
                         Path = iterator.propertyPath,
                         Type = iterator.propertyType.ToString(),
-                        Value = value
+                        Value = readResult.Value,
+                        ValueTruncated = readResult.Truncations.Count > 0,
+                        ValueTruncations = readResult.Truncations
                     });
                 }
             }

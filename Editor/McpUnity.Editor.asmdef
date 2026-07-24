@@ -1,8 +1,9 @@
 {
-    "name": "McpUnity.Editor",
-    "rootNamespace": "",
+    "name": "McpUnity.Extensions",
+    "rootNamespace": "McpUnity.Extensions",
     "references": [
-        "GUID:478a2357cc57436488a56e564b08d223"
+        "Unity.Pipeline",
+        "Unity.Pipeline.Editor"
     ],
     "includePlatforms": [
         "Editor"
@@ -13,12 +14,6 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [
-        {
-            "name": "Unity",
-            "expression": "6000.3",
-            "define": "MCP_UNITY_ENTITY_ID_API"
-        }
-    ],
+    "versionDefines": [],
     "noEngineReferences": false
 }

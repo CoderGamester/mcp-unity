@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "sourceTag": "1.4.0",
+  "sourceCommit": "bbfb1c0681519ced5b357ce7cc3c1ee68c9dc64e",
+  "tools": [
+    "add_asset_to_scene",
+    "add_package",
+    "assign_material",
+    "batch_execute",
+    "create_material",
+    "create_prefab",
+    "create_scene",
+    "delete_gameobject",
+    "delete_scene",
+    "duplicate_gameobject",
+    "execute_menu_item",
+    "get_console_logs",
+    "get_gameobject",
+    "get_material_info",
+    "get_play_mode_status",
+    "get_scene_info",
+    "get_scenes_hierarchy",
+    "load_scene",
+    "modify_material",
+    "move_gameobject",
+    "recompile_scripts",
+    "reparent_gameobject",
+    "rotate_gameobject",
+    "run_tests",
+    "save_scene",
+    "scale_gameobject",
+    "select_gameobject",
+    "send_console_log",
+    "set_play_mode_status",
+    "set_transform",
+    "show_unity_dashboard",
+    "unload_scene",
+    "update_component",
+    "update_gameobject"
+  ],
+  "resources": [
+    "get_assets",
+    "get_console_logs",
+    "get_gameobject",
+    "get_menu_items",
+    "get_packages",
+    "get_scenes_hierarchy",
+    "get_tests",
+    "unity_dashboard_app",
+    "unity_dashboard_app_legacy"
+  ],
+  "uris": [
+    "ui://unity-dashboard",
+    "unity://assets",
+    "unity://gameobject/{idOrName}",
+    "unity://logs/{logType}?offset={offset}&limit={limit}&includeStackTrace={includeStackTrace}",
+    "unity://menu-items",
+    "unity://packages",
+    "unity://scenes_hierarchy",
+    "unity://tests/{testMode}",
+    "unity://ui/dashboard"
+  ],
+  "prompts": [
+    "gameobject_handling_strategy",
+    "unity_dashboard"
+  ],
+  "settings": [
+    "Port",
+    "RequestTimeoutSeconds",
+    "AutoStartServer",
+    "EnableInfoLogs",
+    "NpmExecutablePath",
+    "AllowRemoteConnections"
+  ],
+  "integrations": [
+    {
+      "id": "env:UNITY_HOST",
+      "evidence": [
+        {
+          "path": "Server~/src/unity/mcpUnity.ts",
+          "contains": "process.env.UNITY_HOST"
+        }
+      ]
+    },
+    {
+      "id": "env:LOGGING",
+      "evidence": [
+        {
+          "path": "Server~/src/utils/logger.ts",
+          "contains": "process.env.LOGGING === 'true'"
+        }
+      ]
+    },
+    {
+      "id": "env:LOGGING_FILE",
+      "evidence": [
+        {
+          "path": "Server~/src/utils/logger.ts",
+          "contains": "process.env.LOGGING_FILE === 'true'"
+        }
+      ]
+    },
+    {
+      "id": "path:ProjectSettings/McpUnitySettings.json",
+      "evidence": [
+        {
+          "path": "Editor/UnityBridge/McpUnitySettings.cs",
+          "contains": "ProjectSettings/McpUnitySettings.json"
+        }
+      ]
+    },
+    {
+      "id": "integration:Unity-driven npm install/build",
+      "evidence": [
+        {
+          "path": "Editor/UnityBridge/McpUnityServer.cs",
+          "contains": "npm install"
+        },
+        {
+          "path": "Editor/UnityBridge/McpUnityServer.cs",
+          "contains": "npm run build"
+        }
+      ]
+    },
+    {
+      "id": "integration:automatic MCP-client configuration",
+      "evidence": [
+        {
+          "path": "Editor/UnityBridge/McpUnityEditorWindow.cs",
+          "contains": "ShowConfigButton(\"Windsurf\""
+        },
+        {
+          "path": "Editor/Utils/McpUtils.cs",
+          "contains": "AddToConfigFile"
+        }
+      ]
+    },
+    {
+      "id": "integration:PackedCache mutation",
+      "evidence": [
+        {
+          "path": "Editor/UnityBridge/McpUnityEditorWindow.cs",
+          "contains": "Library/PackedCache"
+        },
+        {
+          "path": "Editor/Utils/VsCodeWorkspaceUtils.cs",
+          "contains": "Library/PackageCache"
+        }
+      ]
+    },
+    {
+      "id": "integration:custom WebSocket endpoint/port",
+      "evidence": [
+        {
+          "path": "Server~/src/unity/mcpUnity.ts",
+          "contains": "private port: number = 8090"
+        },
+        {
+          "path": "Editor/UnityBridge/McpUnitySettings.cs",
+          "contains": "public int Port = 8090"
+        }
+      ]
+    },
+    {
+      "id": "integration:Docker deployment/Dockerfile/exposed ports",
+      "evidence": [
+        {
+          "path": "Server~/Dockerfile",
+          "contains": "EXPOSE 8090 3000"
+        },
+        {
+          "path": "Server~/.dockerignore",
+          "contains": "# Node.js"
+        }
+      ]
+    },
+    {
+      "id": "integration:Smithery configuration",
+      "evidence": [
+        {
+          "path": "Server~/smithery.yaml",
+          "contains": "Smithery.ai configuration"
+        }
+      ]
+    },
+    {
+      "id": "integration:Node npm executable/bin/publication surface",
+      "evidence": [
+        {
+          "path": "Editor/UnityBridge/McpUnitySettings.cs",
+          "contains": "NpmExecutablePath"
+        },
+        {
+          "path": "Server~/package.json",
+          "contains": "\"bin\""
+        },
+        {
+          "path": "Server~/package.json",
+          "contains": "\"files\""
+        }
+      ]
+    },
+    {
+      "id": "integration:MCP registry server.json",
+      "evidence": [
+        {
+          "path": "server.json",
+          "absent": true
+        }
+      ]
+    },
+    {
+      "id": "integration:MCP registry mcpName/mcpname",
+      "evidence": [
+        {
+          "path": "Server~/package.json",
+          "contains": "\"mcpName\""
+        },
+        {
+          "path": "package.json",
+          "contains": "\"mcpname\""
+        }
+      ]
+    },
+    {
+      "id": "integration:Glama registry metadata",
+      "evidence": [
+        {
+          "path": "glama.json",
+          "contains": "glama.ai/mcp/schemas/server.json"
+        }
+      ]
+    }
+  ]
+}

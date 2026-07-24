@@ -1,8 +1,11 @@
 {
     "name": "McpUnity.Editor.Tests",
-    "rootNamespace": "McpUnity.Tests",
+    "rootNamespace": "McpUnity.Extensions.Tests",
     "references": [
-        "McpUnity.Editor",
+        "McpUnity.Extensions",
+        "Unity.Pipeline",
+        "Unity.Pipeline.Editor",
+        "Unity.Nuget.Newtonsoft-Json",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
@@ -11,10 +14,9 @@
     ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": true,
+    "overrideReferences": false,
     "precompiledReferences": [
-        "nunit.framework.dll",
-        "Newtonsoft.Json.dll"
+        "nunit.framework.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [

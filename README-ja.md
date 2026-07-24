@@ -1,5 +1,7 @@
 # MCP Unity Editor（ゲームエンジン）
 
+> **MCP Unity 2.0 documentation notice:** この翻訳は旧 1.4 WebSocket アーキテクチャを説明しています。2.0 の Unity CLI / Pipeline セットアップと移行手順については、最新の [README.md](README.md) を参照してください。
+
 [![](https://badge.mcpx.dev?status=on 'MCP Enabled')](https://modelcontextprotocol.io/introduction)
 [![](https://img.shields.io/badge/Unity-000000?style=flat&logo=unity&logoColor=white 'Unity')](https://unity.com/releases/editor/archive)
 [![](https://img.shields.io/badge/Node.js-339933?style=flat&logo=nodedotjs&logoColor=white 'Node.js')](https://nodejs.org/en/download/)

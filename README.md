@@ -1,726 +1,298 @@
-# MCP Unity Editor (Game Engine)
+# MCP Unity 2.0
 
-[![](https://badge.mcpx.dev?status=on 'MCP Enabled')](https://modelcontextprotocol.io/introduction)
-[![](https://img.shields.io/badge/Unity-000000?style=flat&logo=unity&logoColor=white 'Unity')](https://unity.com/releases/editor/archive)
-[![](https://img.shields.io/badge/Node.js-339933?style=flat&logo=nodedotjs&logoColor=white 'Node.js')](https://nodejs.org/en/download/)
-[![](https://img.shields.io/github/stars/CoderGamester/mcp-unity 'Stars')](https://github.com/CoderGamester/mcp-unity/stargazers)
-[![](https://img.shields.io/github/last-commit/CoderGamester/mcp-unity 'Last Commit')](https://github.com/CoderGamester/mcp-unity/commits/main)
-[![](https://img.shields.io/badge/License-MIT-red.svg 'MIT License')](https://opensource.org/licenses/MIT)
+MCP Unity 2.0 is a Unity CLI extension package for focused Editor authoring workflows. Unity Pipeline supplies the broad command catalog; this package adds five commands where project-specific safety or bounded inspection is valuable. An optional private Node companion adds read-oriented MCP resources and a dashboard.
 
-| [🇺🇸English](README.md) | [🇨🇳简体中文](README_zh-CN.md) | [🇯🇵日本語](README-ja.md) |
-|----------------------|---------------------------------|----------------------|
+Version 2.0.0 supports Unity 6000.0, Unity 6000.3, and Unity 6000.5. It requires Unity CLI 1.0.0-beta.2 or newer. Unity CLI and Pipeline are experimental products, so keep the pins in this repository synchronized when upgrading.
 
-```        
-                              ,/(/.   *(/,                                  
-                          */(((((/.   *((((((*.                             
-                     .*((((((((((/.   *((((((((((/.                         
-                 ./((((((((((((((/    *((((((((((((((/,                     
+> [!IMPORTANT]
+> This is a breaking architecture change from 1.4.0. There is no custom WebSocket bridge, no listener on port 8090, and no `ProjectSettings/McpUnitySettings.json`. See [Migration from 1.4.0](#migration-from-140).
 
-             ,/(((((((((((((/*.           */(((((((((((((/*.                
-            ,%%#((/((((((*                    ,/(((((/(#&@@(                
-            ,%%##%%##((((((/*.             ,/((((/(#&@@@@@@(                
-            ,%%######%%##((/(((/*.    .*/(((//(%@@@@@@@@@@@(                
-            ,%%####%#(%%#%%##((/((((((((//#&@@@@@@&@@@@@@@@(                
-            ,%%####%(    /#%#%%%##(//(#@@@@@@@%,   #@@@@@@@(                
-            ,%%####%(        *#%###%@@@@@@(        #@@@@@@@(                
-            ,%%####%(           #%#%@@@@,          #@@@@@@@(                
-            ,%%##%%%(           #%#%@@@@,          #@@@@@@@(                
-            ,%%%#*              #%#%@@@@,             *%@@@(                
-            .,      ,/##*.      #%#%@@@@,     ./&@#*      *`                
-                ,/#%#####%%#/,  #%#%@@@@, ,/&@@@@@@@@@&\.                    
-                 `*#########%%%%###%@@@@@@@@@@@@@@@@@@&*´                   
-                    `*%%###########%@@@@@@@@@@@@@@&*´                        
-                        `*%%%######%@@@@@@@@@@&*´                            
-                            `*#%%##%@@@@@&*´                                 
-                               `*%#%@&*´                                     
-                                                       
-     ███╗   ███╗ ██████╗██████╗         ██╗   ██╗███╗   ██╗██╗████████╗██╗   ██╗
-     ████╗ ████║██╔════╝██╔══██╗        ██║   ██║████╗  ██║██║╚══██╔══╝╚██╗ ██╔╝
-     ██╔████╔██║██║     ██████╔╝        ██║   ██║██╔██╗ ██║██║   ██║    ╚████╔╝ 
-     ██║╚██╔╝██║██║     ██╔═══╝         ██║   ██║██║╚██╗██║██║   ██║     ╚██╔╝  
-     ██║ ╚═╝ ██║╚██████╗██║             ╚██████╔╝██║ ╚████║██║   ██║      ██║   
-     ╚═╝     ╚═╝ ╚═════╝╚═╝              ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝      ╚═╝   
-```       
+## Architecture
 
-MCP Unity is an implementation of the Model Context Protocol for Unity Editor, allowing AI assistants to interact with your Unity projects. This package provides a bridge between Unity and a Node.js server that implements the MCP protocol, enabling AI agents like Cursor, Windsurf, Claude Code, Codex CLI, GitHub Copilot, Google Antigravity, and OpenCode to execute operations within the Unity Editor.
+The normal data flow is:
 
-## Features
+```text
+MCP client <-> Unity CLI (`unity mcp`) <-> Pipeline <-> Unity Editor
+                                              ^
+                                              |
+                                  MCP Unity extension commands
+```
 
-### IDE Integration - Package Cache Access
+The optional companion is a second MCP server:
 
-MCP Unity provides automatic integration with VSCode-like IDEs (Visual Studio Code, Cursor, Windsurf, Google Antigravity) by adding the Unity `Library/PackedCache` folder to your workspace. This feature:
+```text
+MCP client <-> private Node companion <-> `unity mcp` <-> Pipeline <-> Unity Editor
+```
 
-- Improves code intelligence for Unity packages
-- Enables better autocompletion and type information for Unity packages
-- Helps AI coding assistants understand your project's dependencies
+Unity Package Manager installs the exact dependency `com.unity.pipeline@0.3.1-exp.1` automatically from this package's manifest. MCP Unity does not run `unity pipeline install`, mutate a project manifest, or vendor Pipeline.
 
-### MCP Server Tools
+Unity CLI is machine-level software and is never downloaded or installed by this package. A developer or CI image must install it explicitly.
 
-The following tools are available for manipulating and querying Unity scenes and GameObjects via MCP:
+## Install
 
-- `execute_menu_item`: Executes Unity menu items (functions tagged with the MenuItem attribute)
-  > **Example prompt:** "Execute the menu item 'GameObject/Create Empty' to create a new empty GameObject"
+1. Use Unity 6000.0, Unity 6000.3, or Unity 6000.5.
+2. In Package Manager, choose **Add package from git URL** and enter:
 
-- `select_gameobject`: Selects game objects in the Unity hierarchy by path or instance ID
-  > **Example prompt:** "Select the Main Camera object in my scene"
-
-- `update_gameobject`: Updates a GameObject's core properties (name, tag, layer, active/static state), or creates the GameObject if it does not exist
-  > **Example prompt:** "Set the Player object's tag to 'Enemy' and make it inactive"
-
-- `update_component`: Updates component fields on a GameObject or adds it to the GameObject if it does not contain the component
-  > **Example prompt:** "Add a Rigidbody component to the Player object and set its mass to 5"
-
-- `add_package`: Installs new packages in the Unity Package Manager
-  > **Example prompt:** "Add the TextMeshPro package to my project"
-
-- `run_tests`: Runs tests using the Unity Test Runner
-  > **Example prompt:** "Run all the EditMode tests in my project"
-
-- `send_console_log`: Send a console log to Unity
-  > **Example prompt:** "Send a console log to Unity Editor"
-
-- `add_asset_to_scene`: Adds an asset from the AssetDatabase to the Unity scene
-  > **Example prompt:** "Add the Player prefab from my project to the current scene"
-
-- `create_prefab`: Creates a prefab with optional MonoBehaviour script and serialized field values
-  > **Example prompt:** "Create a prefab named 'Player' from the 'PlayerController' script"
-
-- `create_scene`: Creates a new scene and saves it to the specified path
-  > **Example prompt:** "Create a new scene called 'Level1' in the Scenes folder"
-
-- `load_scene`: Loads a scene by path or name, with optional additive loading
-  > **Example prompt:** "Load the MainMenu scene"
-
-- `delete_scene`: Deletes a scene by path or name and removes it from Build Settings
-  > **Example prompt:** "Delete the old TestScene from my project"
-
-- `get_gameobject`: Gets detailed information about a specific GameObject including all components
-  > **Example prompt:** "Get the details of the Player GameObject"
-
-- `get_console_logs`: Retrieves logs from the Unity console with pagination support
-  > **Example prompt:** "Show me the last 20 error logs from the Unity console"
-
-- `recompile_scripts`: Recompiles all scripts in the Unity project
-  > **Example prompt:** "Recompile scripts in my Unity project"
-
-- `save_scene`: Saves the current active scene, with optional Save As to a new path
-  > **Example prompt:** "Save the current scene" or "Save the scene as 'Assets/Scenes/Level2.unity'"
-
-- `get_scene_info`: Gets information about the active scene including name, path, dirty state, and all loaded scenes
-  > **Example prompt:** "What scenes are currently loaded in my project?"
-
-- `unload_scene`: Unloads a scene from the hierarchy (does not delete the scene asset)
-  > **Example prompt:** "Unload the UI scene from the hierarchy"
-
-- `duplicate_gameobject`: Duplicates a GameObject in the scene with optional renaming and reparenting
-  > **Example prompt:** "Duplicate the Enemy prefab 5 times and rename them Enemy_1 through Enemy_5"
-
-- `delete_gameobject`: Deletes a GameObject from the scene
-  > **Example prompt:** "Delete the old Player object from the scene"
-
-- `reparent_gameobject`: Changes the parent of a GameObject in the hierarchy
-  > **Example prompt:** "Move the HealthBar object to be a child of the UI Canvas"
-
-- `move_gameobject`: Moves a GameObject to a new position (local or world space)
-  > **Example prompt:** "Move the Player object to position (10, 0, 5) in world space"
-
-- `rotate_gameobject`: Rotates a GameObject to a new rotation (local or world space, Euler angles or quaternion)
-  > **Example prompt:** "Rotate the Camera 45 degrees on the Y axis"
-
-- `scale_gameobject`: Scales a GameObject to a new local scale
-  > **Example prompt:** "Scale the Enemy object to twice its size"
-
-- `set_transform`: Sets position, rotation, and scale of a GameObject in a single operation
-  > **Example prompt:** "Set the Cube's position to (0, 5, 0), rotation to (0, 90, 0), and scale to (2, 2, 2)"
-
-- `create_material`: Creates a new material with specified shader and saves it to the project
-  > **Example prompt:** "Create a red material called 'EnemyMaterial' using the URP Lit shader"
-
-- `assign_material`: Assigns a material to a GameObject's Renderer component
-  > **Example prompt:** "Assign the 'EnemyMaterial' to the Enemy GameObject"
-
-- `modify_material`: Modifies properties of an existing material (colors, floats, textures)
-  > **Example prompt:** "Change the color of 'EnemyMaterial' to blue and set metallic to 0.8"
-
-- `get_material_info`: Gets detailed information about a material including shader and all properties
-  > **Example prompt:** "Show me all the properties of the 'PlayerMaterial'"
-
-- `batch_execute`: Executes multiple tool operations in a single batch request, reducing round-trips and enabling atomic operations with optional rollback on failure
-  > **Example prompt:** "Create 10 empty GameObjects named Enemy_1 through Enemy_10 in a single batch operation"
-
-### MCP App tools
-
-- `show_unity_dashboard`: Opens the Unity dashboard MCP App in VS Code (requires VS Code 1.109+)
-  > **Example prompt:** "Open the Unity dashboard app"
-
-- `get_play_mode_status`: Gets Unity play mode status (isPlaying, isPaused)
-  > **Example prompt:** "Is Unity in play mode?"
-
-- `set_play_mode_status`: Controls Unity play mode with actions: 'play' (start or unpause), 'pause' (toggle pause), 'stop' (exit play mode), 'step' (advance one frame)
-  > **Example prompt:** "Start Unity play mode" or "Pause the game" or "Step forward one frame"
-
-### MCP Server Resources
-
-- `unity://menu-items`: Retrieves a list of all available menu items in the Unity Editor to facilitate `execute_menu_item` tool
-  > **Example prompt:** "Show me all available menu items related to GameObject creation"
-
-- `unity://scenes-hierarchy`: Retrieves a list of all game objects in the current Unity scene hierarchy
-  > **Example prompt:** "Show me the current scenes hierarchy structure"
-
-- `unity://gameobject/{id}`: Retrieves detailed information about a specific GameObject by instance ID or object path in the scene hierarchy, including all GameObject components with it's serialized properties and fields
-  > **Example prompt:** "Get me detailed information about the Player GameObject"
-
-- `unity://logs`: Retrieves a list of all logs from the Unity console
-  > **Example prompt:** "Show me the recent error messages from the Unity console"
-
-- `unity://packages`: Retrieves information about installed and available packages from the Unity Package Manager
-  > **Example prompt:** "List all the packages currently installed in my Unity project"
-
-- `unity://assets`: Retrieves information about assets in the Unity Asset Database
-  > **Example prompt:** "Find all texture assets in my project"
-
-- `unity://tests/{testMode}`: Retrieves information about tests in the Unity Test Runner
-  > **Example prompt:** "List all available tests in my Unity project"
-
-- `ui://unity-dashboard`: Unity dashboard MCP App UI
-  > **Example prompt:** "Open the Unity dashboard app"
-
-### MCP Server Prompts
-
-Prompts are pre-configured templates that provide guided workflows for common Unity tasks. They help AI assistants understand the proper sequence of operations and available tools for specific scenarios.
-
-- `unity_dashboard`: Opens the Unity dashboard MCP app with contextual information about its features
-  > **Usage:** In your AI assistant, use the prompt "unity_dashboard" to get guided access to the Unity dashboard
-
-- `gameobject_handling_strategy`: Provides a structured workflow for working with GameObjects, including which tools and resources to use
-  > **Usage:** In your AI assistant, use the prompt "gameobject_handling_strategy" with a GameObject ID, name, or path to get step-by-step guidance
-
-## Requirements
-- Unity 6 or later - to [install the server](#install-server)
-- Node.js 18 or later - to [start the server](#start-server)
-- npm 9 or later - to [debug the server](#debug-server)
-
-> [!NOTE]
-> **Project Paths with Spaces**
->
-> MCP Unity supports project paths containing spaces. However, if you experience connection issues, try moving your project to a path without spaces as a troubleshooting step.
->
-> **Examples:**
-> -   ✅ **Recommended:** `C:\Users\YourUser\Documents\UnityProjects\MyAwesomeGame`
-> -   ✅ **Supported:** `C:\Users\Your User\Documents\Unity Projects\My Awesome Game`
-
-## <a name="install-server"></a>Installation
-
-Installing this MCP Unity Server is a multi-step process:
-
-### Step 1: Install Node.js 
-> To run MCP Unity server, you'll need to have Node.js 18 or later installed on your computer:
-
-![node](docs/node.jpg)
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Windows</span></summary>
-
-1. Visit the [Node.js download page](https://nodejs.org/en/download/)
-2. Download the Windows Installer (.msi) for the LTS version (recommended)
-3. Run the installer and follow the installation wizard
-4. Verify the installation by opening PowerShell and running:
-   ```bash
-   node --version
+   ```text
+   https://github.com/CoderGamester/mcp-unity.git#2.0.0
    ```
-</details>
 
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">macOS</span></summary>
+3. Let UPM resolve `com.unity.pipeline@0.3.1-exp.1`.
+4. Install Unity CLI by following the [official Unity CLI documentation](https://docs.unity.com/en-us/unity-cli/use-unity-cli).
+5. Open `Window > MCP Unity > Setup`.
 
-1. Visit the [Node.js download page](https://nodejs.org/en/download/)
-2. Download the macOS Installer (.pkg) for the LTS version (recommended)
-3. Run the installer and follow the installation wizard
-4. Alternatively, if you have Homebrew installed, you can run:
-   ```bash
-   brew install node@18
-   ```
-5. Verify the installation by opening Terminal and running:
-   ```bash
-   node --version
-   ```
-</details>
+The Setup window is user-initiated and never opens on import. It displays the current project path and the resolved Pipeline version and compatibility state, checks only `unity --version`, and can copy official installation or MCP configuration text. It does not display the resolved package filesystem path; it uses the package resolver path internally when it generates companion configuration. It does not execute installers, request elevation, modify PATH, change shell files, run upgrades, write client configuration, or store a machine-specific CLI path in project settings.
 
-### Step 2: Install Unity MCP Server package via Unity Package Manager
-1. Open the Unity Package Manager (Window > Package Manager)
-2. Click the "+" button in the top-left corner
-3. Select "Add package from git URL..."
-4. Enter: `https://github.com/CoderGamester/mcp-unity.git`
-5. Click "Add"
+CLI lookup order is:
 
-![package manager](https://github.com/user-attachments/assets/a72bfca4-ae52-48e7-a876-e99c701b0497)
+1. the path entered in the Setup window;
+2. `UNITY_CLI_PATH`;
+3. `unity` from `PATH`.
 
-### Step 3: Configure AI LLM Client
+CLI 1.x versions at or above Unity CLI 1.0.0-beta.2 are compatible. A newer major version is reported as untested rather than silently accepted as tested.
 
-<details open>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Option 1: Configure using Unity Editor</span></summary>
+If UPM cannot resolve Pipeline, treat it as a normal package-resolution failure: confirm the Unity version, registry/network access, and the exact dependency pin in `package.json`, then retry Package Manager resolution.
 
-1. Open the Unity Editor
-2. Navigate to Tools > MCP Unity > Server Window
-3. Click on the "Configure" button for your AI LLM client as shown in the image below
+## Configure the primary MCP server
 
-![image](docs/configure.jpg)
+The supported primary entrypoint is:
 
-> **Global vs. Project configuration:**
-   > - **Configure \[Client\]** — writes to your global user config file (e.g. `~/.claude.json`). Uses an absolute path. Applies to all projects on your machine. Best for personal, single-developer setups.
-   > - **Configure \[Client\] (Project)** — writes to a `.mcp.json` file (or equivalent) in the Unity project root. Uses a relative path, so it works across machines. Intended to be committed to git and shared with the team. Best for collaborative projects or when you want the config to travel with the project.
-   >
-   > If in doubt, prefer the **(Project)** variant — the relative path is more portable and won't break if you move your project folder.
+```bash
+unity mcp --project-path "/absolute/path/to/UnityProject"
+```
 
-
-4. Confirm the configuration installation with the given popup
-
-![image](https://github.com/user-attachments/assets/b1f05d33-3694-4256-a57b-8556005021ba)
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Option 2: Configure Manually</span></summary>
-
-Open the MCP configuration file of your AI client and add the MCP Unity server configuration:
-
-> Replace `ABSOLUTE/PATH/TO` with the absolute path to your MCP Unity installation or just copy the text from the Unity Editor MCP Server window (Tools > MCP Unity > Server Window).
->
-> For configs that live inside the Unity project tree and get committed to git (e.g. `<project>/.vscode/mcp.json`, `<project>/opencode.json`, `<project>/.cursor/mcp.json`, `<project>/.mcp.json`, `<project>/.codex/config.toml`), prefer a project-relative path so the same file works across machines. Toggle **"Use relative path"** in the Server Window to switch the copy-paste snippet between absolute and project-relative forms. The **Configure GitHub Copilot**, **Configure OpenCode**, **Configure Cursor (Project)**, **Configure Claude Code (Project)**, and **Configure Codex CLI (Project)** buttons already emit relative paths automatically.
->
-> Project-local buttons (Cursor / Claude Code / Codex CLI) write the MCP server entry into the Unity project directory instead of your global user config, so other (non-Unity) projects don't see MCP connection-failure warnings. For **Codex CLI (Project)** specifically, you must approve the project trust prompt the first time you run `codex` from the project root, otherwise Codex ignores `<project>/.codex/config.toml`.
-
-**For JSON-based clients** (Cursor, Windsurf, Claude Code, GitHub Copilot, etc.):
+A JSON-based MCP client can use:
 
 ```json
 {
-   "mcpServers": {
-       "mcp-unity": {
-          "command": "node",
-          "args": [
-             "ABSOLUTE/PATH/TO/mcp-unity/Server~/build/index.js"
-          ]
-       }
-   }
-}
-```
-
-For workspace-scoped VS Code / GitHub Copilot (`.vscode/mcp.json`), use `${workspaceFolder}` so the path is portable across machines:
-
-```json
-{
-   "mcpServers": {
-       "mcp-unity": {
-          "command": "node",
-          "args": [
-             "${workspaceFolder}/Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"
-          ]
-       }
-   }
-}
-```
-
-**For Codex CLI** (`~/.codex/config.toml`):
-
-```toml
-[mcp_servers.mcp-unity]
-command = "node"
-args = ["ABSOLUTE/PATH/TO/mcp-unity/Server~/build/index.js"]
-```
-
-**For Cursor — project-local** (`.cursor/mcp.json` in the Unity project root, project-relative path):
-
-```json
-{
-   "mcpServers": {
-       "mcp-unity": {
-          "command": "node",
-          "args": [
-             "Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"
-          ]
-       }
-   }
-}
-```
-
-**For Claude Code — project-local** (`.mcp.json` in the Unity project root, project-relative path — Claude Code's team-shared MCP config):
-
-```json
-{
-   "mcpServers": {
-       "mcp-unity": {
-          "command": "node",
-          "args": [
-             "Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"
-          ]
-       }
-   }
-}
-```
-
-**For Codex CLI — project-local** (`.codex/config.toml` in the Unity project root, project-relative path):
-
-```toml
-[mcp_servers.mcp-unity]
-command = "node"
-args = ["Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"]
-```
-
-> Codex layers this file over the global `~/.codex/config.toml`, but only when the project is marked trusted. The first time you `cd` into the project and run `codex`, approve the trust prompt — otherwise Codex ignores `.codex/config.toml`.
-
-**For OpenCode** (`opencode.json` in the Unity project root):
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "mcp-unity": {
-      "type": "local",
-      "enabled": true,
-      "command": ["node", "Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"],
-      "environment": {}
+  "mcpServers": {
+    "unity": {
+      "command": "unity",
+      "args": [
+        "mcp",
+        "--project-path",
+        "/absolute/path/to/UnityProject"
+      ]
     }
   }
 }
 ```
 
-> Note: the `@<hash>` segment in the UPM package cache path changes when the package is updated. If you update MCP Unity, re-run the **Configure** button (or update the path manually) so the snippet points at the new cache directory.
+If Unity CLI is not on `PATH`, set the MCP client's `command` to the absolute executable path. Otherwise, ensure `unity` is available on the MCP client's `PATH`. The Setup window copies, but never writes, this configuration.
 
-</details>
+## MCP Unity extension commands
 
-## <a name="start-server"></a>Start Unity Editor MCP Server
-1. Open the Unity Editor
-2. Navigate to Tools > MCP Unity > Server Window
-3. Click "Start Server" to start the WebSocket server
-4. Open your AI Coding IDE (e.g. Cursor, Windsurf, Claude Code, Codex CLI, GitHub Copilot, Google Antigravity, OpenCode, etc.) and start executing Unity tools
-   
-![connect](https://github.com/user-attachments/assets/2e266a8b-8ba3-4902-b585-b220b11ab9a2)
+Pipeline discovers these commands through `[CliCommand]`:
 
-> When the AI client connects to the WebSocket server, it will automatically show in the green box in the window
+- `inspect_gameobject` — bounded GameObject, hierarchy, component, and serialized-property inspection. Depth defaults to 2 and caps at 8; nodes default to 200 and cap at 1,000. Each GameObject returns at most 32 components, the whole inspection returns at most 128 components, and one shared aggregate conversion-work budget bounds property scanning and lazy value conversion across every component. Serialized readers, iterators, wrappers, and values reserve work/content before allocation; exact exhaustion blocks later work without claiming conversion truncation until something is actually omitted. The serialized result stays at or below 512 KiB and reports stable work, content, conversion, component, property, and payload truncation metadata.
+- `duplicate_gameobject` — duplicate a source with optional parent/name and `world_position_stays`; records Unity Undo and returns the new identity.
+- `unload_scene` — unload a scene by path; protects dirty scenes unless `force=true` and never unloads the only active scene.
+- `editor_step` — advance one Editor frame; requires play mode and returns the resulting Editor state.
+- `assign_material` — assign a material to a Renderer slot with validation, Undo, and prefab-modification recording.
 
-## Optional: Set WebSocket Port
-By default, the WebSocket server runs on port '8090'. You can change this port in two ways:
+All other Editor operations use commands supplied by `com.unity.pipeline@0.3.1-exp.1`. Run the CLI/MCP command discovery flow to inspect the full official catalog.
 
-1. Open the Unity Editor
-2. Navigate to Tools > MCP Unity > Server Window
-3. Change the "WebSocket Port" value to your desired port number
-4. Unity will setup the system environment variable UNITY_PORT to the new port number
-5. Restart the Node.js server
-6. Click again on "Start Server" to reconnect the Unity Editor web socket to the Node.js MCP Server
+## Optional MCP companion
 
-## Optional: Set Timeout
+`Server~` is a private, self-contained Node 20+ package. Its tracked `build/index.js` bundles every runtime npm dependency and its copied dashboard, so a UPM or Git installation can launch it directly without `npm install`; bundled licenses are retained in `Server~/THIRD_PARTY_NOTICES.md`. Release verification initializes that shipped entrypoint from a clean archive with no reachable `node_modules`, uses Node itself with an extensionless cross-platform fake `mcp` child (no shell, chmod, or `.cmd` dependency), and reads `ui://unity-dashboard` over stdio. It is optional: the Unity package and all five extension commands remain usable through the primary `unity mcp` server without Node.
 
-By default, the timeout between the MCP server and the WebSocket is 10 seconds.
-You can change depending on the OS you are using:
+Every Unity-backed companion resource is projected to at most 512 KiB. Strings, collections, object keys, depth, and aggregate values are bounded without recursive traversal, and the top-level `projection` metadata reports whether data was omitted. The scene hierarchy uses equivalent specialized `truncation` metadata. Companion error details have a centralized 4 KiB UTF-8-safe ceiling; oversized errors end with `[truncated]`, including outer MCP resource and dashboard-read errors.
 
-1. Open the Unity Editor
-2. Navigate to Tools > MCP Unity > Server Window
-3. Change the "Request Timeout (seconds)" value to your desired timeout seconds
-4. Unity will setup the system environment variable UNITY_REQUEST_TIMEOUT to the new timeout value
-5. Restart the Node.js server
-6. Click again on "Start Server" to reconnect the Unity Editor web socket to the Node.js MCP Server
+The companion requires `--project-path <absolute-path>` and accepts `--unity-cli-path <absolute-path>`. Its lookup order is the argument, `UNITY_CLI_PATH`, then `unity` from `PATH`. It validates Unity CLI 1.0.0-beta.2 or newer and never installs it.
 
-> [!TIP]  
-> The timeout between your AI Coding IDE (e.g., Claude Desktop, Cursor IDE, Windsurf IDE) and the MCP Server depends on the IDE.
+Open `Window > MCP Unity > Setup` and use its copy action to generate this configuration from the package path it resolves internally:
 
-## Optional: Allow Remote MCP Bridge Connections
-
-By default, the WebSocket server binds to 'localhost'. To allow MCP bridge connections from other machines:
-
-1. Open the Unity Editor
-2. Navigate to Tools > MCP Unity > Server Window
-3. Enable the "Allow Remote Connections" checkbox
-4. Unity will bind the WebSocket server to '0.0.0.0' (all interfaces)
-5. Restart the Node.js server to apply the new host configuration
-6. Set the environment variable UNITY_HOST to your Unity machine's IP address when running the MCP bridge remotely: `UNITY_HOST=192.168.1.100 node server.js`
-
-## <a name="debug-server"></a>Debugging the Server
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Building the Node.js Server</span></summary>
-
-The MCP Unity server is built using Node.js . It requires to compile the TypeScript code to JavaScript in the `build` directory.
-In case of issues, you can force install it in by:
-
-1. Open the Unity Editor
-2. Navigate to Tools > MCP Unity > Server Window
-3. Click on "Force Install Server" button
-
-![install](docs/install.jpg)
-
-If you want to build it manually, you can follow these steps:
-
-1. Open a terminal/PowerShell/Command Prompt
-
-2. Navigate to the Server directory:
-   ```bash
-   cd ABSOLUTE/PATH/TO/mcp-unity/Server~
-   ```
-
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-4. Build the server:
-   ```bash
-   npm run build
-   ```
-
-5. Run the server:
-   ```bash
-   node build/index.js
-   ```
-
-</details>
-   
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Debugging with MCP Inspector</span></summary>
-
-Debug the server with [@modelcontextprotocol/inspector](https://github.com/modelcontextprotocol/inspector):
-   - Powershell
-   ```powershell
-   npx @modelcontextprotocol/inspector node Server~/build/index.js
-   ```
-   - Command Prompt/Terminal
-   ```cmd
-   npx @modelcontextprotocol/inspector node Server~/build/index.js
-   ```
-
-Don't forget to shutdown the server with `Ctrl + C` before closing the terminal or debugging it with the [MCP Inspector](https://github.com/modelcontextprotocol/inspector).
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Enable Console Logs</span></summary>
-
-1. Enable logging on your terminal or into a log.txt file:
-   - Powershell
-   ```powershell
-   $env:LOGGING = "true"
-   $env:LOGGING_FILE = "true"
-   ```
-   - Command Prompt/Terminal
-   ```cmd
-   set LOGGING=true
-   set LOGGING_FILE=true
-   ```
-
-</details>
-
-## Frequently Asked Questions
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">What is MCP Unity?</span></summary>
-
-MCP Unity is a powerful bridge that connects your Unity Editor environment to AI assistants LLM tools using the Model Context Protocol (MCP).
-
-In essence, MCP Unity:
--   Exposes Unity Editor functionalities (like creating objects, modifying components, running tests, etc.) as "tools" and "resources" that an AI can understand and use.
--   Runs a WebSocket server inside Unity and a Node.js server (acting as a WebSocket client to Unity) that implements the MCP. This allows AI assistants to send commands to Unity and receive information back.
--   Enables you to use natural language prompts with your AI assistant to perform complex tasks within your Unity project, significantly speeding up development workflows.
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Why use MCP Unity?</span></summary>
-
-MCP Unity offers several compelling advantages for developers, artists, and project managers:
-
--   **Accelerated Development:** Automate repetitive tasks, generate boilerplate code, and manage assets using AI prompts. This frees up your time to focus on creative and complex problem-solving.
--   **Enhanced Productivity:** Interact with Unity Editor features without needing to manually click through menus or write scripts for simple operations. Your AI assistant becomes a direct extension of your capabilities within Unity.
--   **Improved Accessibility:** Allows users who are less familiar with the deep intricacies of the Unity Editor or C# scripting to still make meaningful contributions and modifications to a project through AI guidance.
--   **Seamless Integration:** Designed to work with various AI assistants and IDEs that support MCP, providing a consistent way to leverage AI across your development toolkit.
--   **Extensibility:** The protocol and the toolset can be expanded. You can define new tools and resources to expose more of your project-specific or Unity's functionality to AI.
--   **Collaborative Potential:** Facilitates a new way of collaborating where AI can assist in tasks traditionally done by team members, or help in onboarding new developers by guiding them through project structures and operations.
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">How does MCP Unity compare with the upcoming Unity 6.2 AI features?</span></summary>
-
-Unity 6.2 is set to introduce new built-in AI tools, including the previous Unity Muse (for generative AI capabilities like texture and animation generation) and Unity Sentis (for running neural networks in Unity runtime). As Unity 6.2 is not yet fully released, this comparison is based on publicly available information and anticipated functionalities:
-
--   **Focus:**
-    -   **MCP Unity:** Primarily focuses on **Editor automation and interaction**. It allows external AI (like LLM-based coding assistants) to *control and query the Unity Editor itself* to manipulate scenes, assets, and project settings. It's about augmenting the *developer's workflow* within the Editor.
-    -   **Unity 6.2 AI:**
-        -   Aims at in-Editor content creation (generating textures, sprites, animations, behaviors, scripts) and AI-powered assistance for common tasks, directly integrated into the Unity Editor interface.
-        -   A fine-tuned model to ask any question about Unity's documentation and API structure, with customized examples more accurate to Unity's environment.
-        -   Adds the functionality to run AI model inference, allowing developers to deploy and run pre-trained neural networks *within your game or application* for features like NPC behavior, image recognition, etc.
-
--   **Use Cases:**
-    -   **MCP Unity:** "Create a new 3D object, name it 'Player', add a Rigidbody, and set its mass to 10." "Run all Play Mode tests." "Ask to fix the error on the console log." "Execute the custom menu item 'Prepare build for iOS' and fix any errors that may occur."
-    -   **Unity 6.2 AI:** "Generate a sci-fi texture for this material." "Update all trees position in the scene to be placed inside of terrain zones tagged with 'forest'." "Create a walking animation for this character." "Generate 2D sprites to complete the character." "Ask details about the error on the console log."
-
--   **Complementary, Not Mutually Exclusive:**
-    MCP Unity and Unity's native AI tools can be seen as complementary. You might use MCP Unity with your AI coding assistant to set up a scene or batch-modify assets, and then use Unity AI tools to generate a specific texture, or to create animations, or 2D sprites for one of those assets. MCP Unity provides a flexible, protocol-based way to interact with the Editor, which can be powerful for developers who want to integrate with a broader range of external AI services or build custom automation workflows.
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">What MCP hosts and IDEs currently support MCP Unity?</span></summary>
-
-MCP Unity is designed to work with any AI assistant or development environment that can act as an MCP client. The ecosystem is growing, but current known integrations or compatible platforms include:
--  Cursor
--  Windsurf
--  Claude Desktop
--  Claude Code
--  Codex CLI
--  GitHub Copilot
--  Google Antigravity
--  OpenCode
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Can I extend MCP Unity with custom tools for my project?</span></summary>
-
-Yes, absolutely! One of the significant benefits of the MCP Unity architecture is its extensibility.
--   **In Unity (C#):** You can create new C# classes that inherit from `McpToolBase` (or a similar base for resources) to expose custom Unity Editor functionality. These tools would then be registered in `McpUnityServer.cs`. For example, you could write a tool to automate a specific asset import pipeline unique to your project.
--   **In Node.js Server (TypeScript):** You would then define the corresponding TypeScript tool handler in the `Server/src/tools/` directory, including its Zod schema for inputs/outputs, and register it in `Server/src/index.ts`. This Node.js part will forward the request to your new C# tool in Unity.
-
-This allows you to tailor the AI's capabilities to the specific needs and workflows of your game or application.
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Is MCP Unity free to use?</span></summary>
-
-Yes, MCP Unity is an open-source project distributed under the MIT License. You are free to use, modify, and distribute it according to the license terms.
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Why am I unable to connect to MCP Unity?</span></summary>
-
-- Ensure the WebSocket server is running (check the Server Window in Unity)
-- Send a console log message from MCP client to force a reconnection between MCP client and Unity server
-- Change the port number in the Unity Editor MCP Server window. (Tools > MCP Unity > Server Window)
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Why won't the MCP Unity server start?</span></summary>
-
-- Check the Unity Console for error messages
-- Ensure Node.js is properly installed and accessible in your PATH
-- Verify that all dependencies are installed in the Server directory
-
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Why do I get a connection failed error when running Play Mode tests?</span></summary>
-
-The `run_tests` tool returns the following response:
-```
-Error:
-Connection failed: Unknown error
+```json
+{
+  "mcpServers": {
+    "mcp-unity-companion": {
+      "command": "node",
+      "args": [
+        "/resolved/upm/package/path/Server~/build/index.js",
+        "--project-path",
+        "/absolute/path/to/UnityProject"
+      ]
+    }
+  }
+}
 ```
 
-This error occurs because the bridge connection is lost when the domain reloads upon switching to Play Mode.  The workaround is to turn off **Reload Domain** in **Edit > Project Settings > Editor > "Enter Play Mode Settings"**.
+To pin a CLI executable for only this companion, use the optional argument:
 
-</details>
-
-<details>
-<summary><span style="font-size: 1.1em; font-weight: bold;">Why do some clients fail with <code>KeyError: 'position'</code> during tool initialization?</span></summary>
-
-Some MCP clients may fail while parsing tool schemas when they contain local JSON pointer references such as `#/properties/position`.
-
-MCP Unity avoids this by registering transform tool inputs (`set_transform`, `move_gameobject`, `rotate_gameobject`, `scale_gameobject`) with fresh nested vector schemas per field, so the generated schema does not rely on local `#/properties/...` references.
-
-If you still see this error:
-- update your MCP client to the latest version,
-- rebuild the Node server (`cd Server~ && npm run build`),
-- confirm your package version includes this compatibility fix.
-
-</details>
-
-## Troubleshooting: WSL2 (Windows 11) networking
-
-When running the MCP (Node.js) server inside WSL2 while Unity runs on Windows 11, connecting to `ws://localhost:8090/McpUnity` may fail with `ECONNREFUSED`.
-
-Cause: WSL2 and Windows have separate network namespaces — `localhost` inside WSL2 does not point to the Windows host. By default, Unity listens on `localhost:8090`.
-
-### Solution 1 — Enable WSL2 Mirrored mode networking (preferred)
-- Windows 11: Settings → System → For developers → WSL → Enable “Mirrored mode networking”.
-- Or via `.wslconfig` (then run `wsl --shutdown` and reopen WSL):
-
-```ini
-[wsl2]
-networkingMode=mirrored
+```json
+{
+  "mcpServers": {
+    "mcp-unity-companion": {
+      "command": "node",
+      "args": [
+        "/resolved/upm/package/path/Server~/build/index.js",
+        "--project-path",
+        "/absolute/path/to/UnityProject",
+        "--unity-cli-path",
+        "/absolute/path/to/unity"
+      ]
+    }
+  }
+}
 ```
 
-After enabling, `localhost` is shared between Windows and WSL2, so the default config (`localhost:8090`) works.
+The companion exposes exactly:
 
-### Solution 2 — Point the Node client to the Windows host
-Set in your WSL shell before starting the MCP client:
+- Tool: `show_unity_dashboard`
+- Resources:
+  - `unity://logs{?severity,limit}`
+  - `unity://scenes-hierarchy{?path,max_nodes}`
+  - `unity://gameobject/{target}`
+  - `unity://packages{?include_indirect}`
+  - `unity://tests/{mode}`
+  - `ui://unity-dashboard`
+- Prompts:
+  - `gameobject_handling_strategy`
+  - `unity_dashboard`
+
+The companion lazily starts `unity mcp`, retries one interrupted read-only resource request, and never mirrors or retries mutation commands.
+
+## Remote and CI operation
+
+The package is local-only. Run Unity CLI on the same host as the Unity Editor. For a remote workflow, connect to that host through SSH or external agent infrastructure and launch the CLI there; do not expose an Editor socket.
+
+CI must install Unity CLI before starting MCP Unity. The official non-interactive beta-channel commands currently surfaced by the Setup window are:
+
+macOS/Linux:
 
 ```bash
-# Use the Windows host IP detected from resolv.conf
-export UNITY_HOST=$(grep -m1 nameserver /etc/resolv.conf | awk '{print $2}')
+curl -fsSL https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.sh | UNITY_CLI_CHANNEL=beta bash
 ```
 
-With this, `Server~/src/unity/mcpUnity.ts` will connect to `ws://$UNITY_HOST:8090/McpUnity` instead of `localhost` (it reads `UNITY_HOST`, and may also honor a `Host` in `ProjectSettings/McpUnitySettings.json` if present).
+Windows PowerShell:
 
-### Solution 3 — Allow remote connections from Unity
-- Unity: Tools → MCP Unity → Server Window → enable “Allow Remote Connections” (Unity binds to `0.0.0.0`).
-- Ensure Windows Firewall allows inbound TCP on your configured port (default 8090).
-- From WSL2, connect to the Windows host IP (see Solution 2) or to `localhost` if mirrored mode is enabled.
-
-> [!NOTE]
-> Default port is `8090`. You can change it in the Unity Server Window (Tools → MCP Unity → Server Window). The value maps to `McpUnitySettings` and is persisted in `ProjectSettings/McpUnitySettings.json`.
-
-#### Validate connectivity
-
-```bash
-npm i -g wscat
-# After enabling mirrored networking
-wscat -c ws://localhost:8090/McpUnity
-# Or using the Windows host IP
-wscat -c ws://$UNITY_HOST:8090/McpUnity
+```powershell
+$env:UNITY_CLI_CHANNEL='beta'; irm https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.ps1 | iex
 ```
 
-## Running Tests
+After installation, CI should run `unity --version` and require Unity CLI 1.0.0-beta.2 or newer before launching `unity mcp --project-path <absolute-project-path>`.
 
-### C# Tests (Unity)
-Run tests using Unity's Test Runner:
-1. Open Unity Editor
-2. Navigate to Window > General > Test Runner
-3. Select "EditMode" tab
-4. Click "Run All" to execute all tests
+## Migration from 1.4.0
 
-### TypeScript Tests (Server)
-Run tests using Jest:
+The table is intentionally exhaustive. Its checked-in inventory is enforced against the actual tool constants, resource registrations, prompt registrations, URI templates, settings fields, environment variables, deployment files, and registry metadata in the `1.4.0` tag whenever that tag object is available. Shallow clones and packaged copies use the same immutable inventory snapshot.
+
+### Tools
+
+| 1.4.0 concept | 2.0 replacement |
+|---|---|
+| `tool:add_asset_to_scene` | Pipeline `instantiate_prefab` for prefab assets; use the relevant Pipeline asset/authoring command for other asset types. |
+| `tool:add_package` | Pipeline `package_add`; poll `package_status` when needed. |
+| `tool:assign_material` | MCP Unity extension `assign_material`. |
+| `tool:batch_execute` | Removed. Let the MCP client sequence Pipeline commands; use Pipeline's purpose-built plural commands such as `create_gameobjects` where available. |
+| `tool:create_material` | Pipeline `create_asset` with type `UnityEngine.Material`, then `set_material_properties`. |
+| `tool:create_prefab` | Pipeline `create_gameobject`/`attach_script` as needed, then `create_prefab`. |
+| `tool:create_scene` | Pipeline `create_scene`. |
+| `tool:delete_gameobject` | Pipeline `delete_gameobject`. |
+| `tool:delete_scene` | Pipeline `remove_scene_from_build` when applicable, then `delete_asset` with confirmation. |
+| `tool:duplicate_gameobject` | MCP Unity extension `duplicate_gameobject`. |
+| `tool:execute_menu_item` | Pipeline `menu`. |
+| `tool:get_console_logs` | Pipeline `get_console_logs`, or companion `unity://logs{?severity,limit}`. |
+| `tool:get_gameobject` | MCP Unity extension `inspect_gameobject`, or companion `unity://gameobject/{target}`. |
+| `tool:get_material_info` | Pipeline `get_material_properties`. |
+| `tool:get_play_mode_status` | Pipeline `editor_status`. |
+| `tool:get_scene_info` | Pipeline `list_open_scenes`. |
+| `tool:get_scenes_hierarchy` | Pipeline `get_scene_hierarchy`, or companion `unity://scenes-hierarchy{?path,max_nodes}`. |
+| `tool:load_scene` | Pipeline `open_scene`. |
+| `tool:modify_material` | Pipeline `set_material_properties`. |
+| `tool:move_gameobject` | Pipeline `set_transform`. |
+| `tool:recompile_scripts` | Pipeline `recompile`; poll `recompile_status`. |
+| `tool:reparent_gameobject` | Pipeline `set_parent`. |
+| `tool:rotate_gameobject` | Pipeline `set_transform`. |
+| `tool:run_tests` | Pipeline `list_tests`, `run_tests`, and `test_status`. |
+| `tool:save_scene` | Pipeline `save_scene` or `save_all`. |
+| `tool:scale_gameobject` | Pipeline `set_transform`. |
+| `tool:select_gameobject` | Pipeline `set_selection`; inspect with `get_selection`. |
+| `tool:send_console_log` | Removed. Use project logging code or a project-specific `[CliCommand]`; Pipeline provides `get_console_logs` and `clear_console`, not arbitrary log injection. |
+| `tool:set_play_mode_status` | Pipeline `editor_play`, `editor_pause`, and `editor_stop`; use extension `editor_step` to step. |
+| `tool:set_transform` | Pipeline `set_transform`. |
+| `tool:show_unity_dashboard` | Optional companion tool `show_unity_dashboard`. |
+| `tool:unload_scene` | MCP Unity extension `unload_scene`. |
+| `tool:update_component` | Pipeline `add_component` and `set_component_properties`. |
+| `tool:update_gameobject` | Pipeline `create_gameobject`, `rename_gameobject`, `set_active`, `set_tag`, `set_layer`, `set_parent`, and `set_transform` as required. |
+
+### Resources, prompts, and URIs
+
+| 1.4.0 concept | 2.0 replacement |
+|---|---|
+| `resource:get_assets` | Removed as a resource; use Pipeline `find_assets`. |
+| `resource:get_console_logs` | Companion `unity://logs{?severity,limit}` or Pipeline `get_console_logs`. |
+| `resource:get_gameobject` | Companion `unity://gameobject/{target}` or extension `inspect_gameobject`. |
+| `resource:get_menu_items` | Removed as a resource; call Pipeline `menu` without a path to list menu items. |
+| `resource:get_packages` | Companion `unity://packages{?include_indirect}` or Pipeline `package_list`. |
+| `resource:get_scenes_hierarchy` | Companion `unity://scenes-hierarchy{?path,max_nodes}` or Pipeline `get_scene_hierarchy`. |
+| `resource:get_tests` | Companion `unity://tests/{mode}` or Pipeline `list_tests`. |
+| `resource:unity_dashboard_app` | Companion `ui://unity-dashboard`. |
+| `resource:unity_dashboard_app_legacy` | Removed; use companion `ui://unity-dashboard`. |
+| `uri:ui://unity-dashboard` | Retained by the optional companion. |
+| `uri:unity://assets` | Removed; use Pipeline `find_assets`. |
+| `uri:unity://gameobject/{idOrName}` | Companion `unity://gameobject/{target}`. |
+| `uri:unity://logs/{logType}?offset={offset}&limit={limit}&includeStackTrace={includeStackTrace}` | Companion `unity://logs{?severity,limit}`; pagination/stack controls are no longer public URI arguments. |
+| `uri:unity://menu-items` | Removed; call Pipeline `menu` without a path. |
+| `uri:unity://packages` | Companion `unity://packages{?include_indirect}`. |
+| `uri:unity://scenes_hierarchy` | Renamed to companion `unity://scenes-hierarchy{?path,max_nodes}`. |
+| `uri:unity://tests/{testMode}` | Renamed to companion `unity://tests/{mode}`. |
+| `uri:unity://ui/dashboard` | Removed legacy alias; use `ui://unity-dashboard`. |
+| `prompt:gameobject_handling_strategy` | Retained by the optional companion. |
+| `prompt:unity_dashboard` | Retained by the optional companion. |
+
+### Configuration and integration
+
+| 1.4.0 concept | 2.0 replacement |
+|---|---|
+| `config:Port` | Removed; Unity CLI owns transport. There is no package port setting. |
+| `config:RequestTimeoutSeconds` | Removed; use MCP host/CLI timeout controls. |
+| `config:AutoStartServer` | Removed; the MCP host explicitly launches `unity mcp`. |
+| `config:EnableInfoLogs` | Removed; use Unity CLI and Editor logging. |
+| `config:NpmExecutablePath` | Removed; the Unity package does not run npm. |
+| `config:AllowRemoteConnections` | Removed; run the CLI on the Unity host and connect through SSH/external agent infrastructure. |
+| `concept:env:UNITY_HOST` | Removed; there is no host override for an Editor socket. Run Unity CLI on the Editor host. |
+| `concept:env:LOGGING` | Removed with the legacy Node logger. Use Unity CLI, MCP-host, and Editor logging. |
+| `concept:env:LOGGING_FILE` | Removed with legacy `log.txt` output. Direct logs through the MCP host/CI environment instead. |
+| `concept:path:ProjectSettings/McpUnitySettings.json` | Removed and never created. |
+| `concept:integration:Unity-driven npm install/build` | Removed; the bundled companion build is shipped in `Server~/build`, and maintainers build it outside Unity. |
+| `concept:integration:automatic MCP-client configuration` | Removed; `Window > MCP Unity > Setup` only copies configuration after a user action. |
+| `concept:integration:PackedCache mutation` | Removed; MCP Unity never edits IDE workspaces or PackedCache references. |
+| `concept:integration:custom WebSocket endpoint/port` | Removed; Unity CLI/Pipeline own communication and the old endpoint and port 8090 are not opened. |
+| `concept:integration:Docker deployment/Dockerfile/exposed ports` | Removed. No Docker image or exposed bridge/health ports are shipped; install and run Unity CLI on the Unity host or through external agent infrastructure. |
+| `concept:integration:Smithery configuration` | Removed. Configure the primary CLI or optional companion directly in the MCP host; no Smithery manifest is shipped. |
+| `concept:integration:Node npm executable/bin/publication surface` | Removed. The companion is private, has no npm `bin`, `files`, or publication configuration, and is launched from its bundled `Server~/build/index.js`. |
+| `concept:integration:MCP registry server.json` | The invalid registry manifest was already absent from the final 1.4.0 tag and remains unsupported in 2.0. |
+| `concept:integration:MCP registry mcpName/mcpname` | Removed from both Unity and Node package metadata; 2.0 is not an npm-published MCP server. |
+| `concept:integration:Glama registry metadata` | Removed; the package no longer advertises a registry-hosted server through Glama metadata. |
+
+Old tool aliases are not retained. Update prompts and client automation to the replacement names above before upgrading.
+
+## Development
+
+Install and test the private companion:
+
 ```bash
 cd Server~
-npm test
+npm ci
+npm test -- --runInBand --detectOpenHandles
+npm run build
+npm audit --omit=dev
 ```
 
-To run tests in watch mode:
+Run Unity EditMode tests from the Editor Test Runner or in batch mode on all supported lines:
+
 ```bash
-npm run test:watch
+"/Applications/Unity/Hub/Editor/<version>/Unity.app/Contents/MacOS/Unity" \
+  -batchmode -nographics -projectPath "/path/to/test-project" \
+  -runTests -testPlatform EditMode -testResults "/tmp/results.xml"
 ```
 
-## Support & Feedback
+See [AGENTS.md](AGENTS.md) for the maintainer architecture and release invariants, and [CHANGELOG.md](CHANGELOG.md) for release notes.
 
-If you have any questions or need support, please open an [issue](https://github.com/CoderGamester/mcp-unity/issues) on this repository or alternative you can reach out on:
-- Linkedin: [![](https://img.shields.io/badge/LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white 'LinkedIn')](https://www.linkedin.com/in/miguel-tomas/)
-- Discord: gamester7178
-- Email: game.gamester@gmail.com
+## Security and audit note
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request or open an Issue with your request.
-
-**Commit your changes** following the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) format.
+The companion uses stdio only. The exact required `@modelcontextprotocol/sdk@1.26.0` pin currently brings two moderate npm audit advisories through its unused Hono HTTP adapter. They are tracked as an inherited pinned-SDK risk; MCP Unity does not import or expose that HTTP adapter. Changing the SDK pin requires a coordinated compatibility review.
 
 ## License
 
-This project is under [MIT License](LICENSE.md)
-
-## Acknowledgements
-
-- [Model Context Protocol](https://modelcontextprotocol.io)
-- [Unity Technologies](https://unity.com)
-- [Node.js](https://nodejs.org)
-- [WebSocket-Sharp](https://github.com/sta/websocket-sharp)
+[MIT](LICENSE.md)

@@ -1,46 +1,9 @@
-# MCP Unity
+# MCP Unity 2.0
 
-> MCP Unity is an open-source implementation of the Model Context Protocol (MCP) for the Unity Editor.
-> It connects a C# Unity Editor package with a Node.js/TypeScript server over WebSockets and exposes
-> high-level "tools" and "resources" so language-model agents and other automated clients can safely
-> inspect, test, and modify Unity projects in real-time.
+MCP Unity 2.0 extends Unity CLI and `com.unity.pipeline`; it does not run a custom WebSocket bridge.
 
-This repository consists of two coordinated halves that communicate using JSON-encoded MCP messages:
+- User setup, exact public catalogs, and the complete 1.4 migration table: [README.md](README.md)
+- Maintainer architecture, invariants, and test matrix: [AGENTS.md](AGENTS.md)
+- Release notes: [CHANGELOG.md](CHANGELOG.md)
 
-- **Editor/** – Unity package that starts an internal WebSocket server and registers C# MCP tools & resources.
-- **Server/** – Node.js/TypeScript application that runs outside Unity, connects to the Editor server, and
-  re-exposes identical MCP tools/resources for AI assistants.
-
-Together they allow AI coding assistants (e.g. Windsurf, Cursor, Claude Code, GitHub Copilot) to drive the Unity Editor headlessly,
-automate scene and asset management, run tests, install packages, and gather diagnostics.
-
-## Docs
-- [Project README](README.md): Full feature list, installation, and getting-started guide.
-- [Installation guide](README.md#installation): Step-by-step setup instructions.
-- [Unity Editor Tools source](Editor/Tools/): C# classes that implement individual editor actions.
-- [Node.js Tools source](Server~/src/tools/): TypeScript wrappers that forward requests to Unity.
-
-## Tools
-- [`execute_menu_item`](README.md#mcp-server-tools): Executes Unity Editor menu items by path.
-- [`select_gameobject`](README.md#mcp-server-tools): Selects GameObjects in the Unity scene by path or instance ID.
-- [`update_gameobject`](README.md#mcp-server-tools): Creates or updates GameObjects (name, tag, layer, active/static).
-- [`update_component`](README.md#mcp-server-tools): Adds or edits component fields on GameObjects.
-- [`add_package`](README.md#mcp-server-tools): Installs Unity packages via the Package Manager.
-- [`run_tests`](README.md#mcp-server-tools): Runs Unity Test Runner tests (EditMode/PlayMode).
-- [`send_console_log`](README.md#mcp-server-tools): Sends a console message to the Unity Editor log.
-- [`add_asset_to_scene`](README.md#mcp-server-tools): Adds an AssetDatabase asset to the current scene.
-
-## Resources
-- [unity://menu-items](README.md#mcp-server-resources): Returns all available Unity menu items.
-- [unity://scenes-hierarchy](README.md#mcp-server-resources): Current scene hierarchy tree.
-- [unity://gameobject/{id}](README.md#mcp-server-resources): Detailed info for a specific GameObject.
-- [unity://logs](README.md#mcp-server-resources): Unity console log entries.
-- [unity://packages](README.md#mcp-server-resources): Installed/available Unity packages.
-- [unity://assets](README.md#mcp-server-resources): AssetDatabase search results.
-- [unity://tests/{testMode}](README.md#mcp-server-resources): Test metadata for EditMode/PlayMode.
-
-## Optional
-- [Model Context Protocol specification](https://modelcontextprotocol.io/spec): Formal protocol definition for MCP.
-- [Unity Editor](https://unity.com/releases/editor/archive): Official Unity Editor download and documentation.
-- [Node.js](https://nodejs.org/en/download/): JavaScript runtime used for the MCP server backend.
-- [WebSocket-Sharp (C#)](https://github.com/sta/websocket-sharp/tree/master/websocket-sharp/Server): C# WebSocket server library used in the Unity package.
+Use `unity mcp --project-path <absolute-project>` as the primary MCP entrypoint. Unity CLI is installed explicitly by the user or CI. The optional private companion is bundled under `Server~`.

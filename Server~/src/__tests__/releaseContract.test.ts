@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,6 +18,8 @@ const legacySnapshotPath = path.join(
   'fixtures',
   'legacy-1.4.0-inventory.json',
 );
+const legacySnapshotSha256 =
+  'd6c1c9aa87f69febf8034e290e57d60f668f8abe9b540a02a27ac375fbaa1227';
 
 const readRepositoryFile = (relativePath: string): string =>
   fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
@@ -122,6 +126,23 @@ const legacyConcepts = [
   'integration:Glama registry metadata',
 ] as const;
 
+const legacyEvidenceCounts: Record<(typeof legacyConcepts)[number], number> = {
+  'env:UNITY_HOST': 1,
+  'env:LOGGING': 1,
+  'env:LOGGING_FILE': 1,
+  'path:ProjectSettings/McpUnitySettings.json': 1,
+  'integration:Unity-driven npm install/build': 2,
+  'integration:automatic MCP-client configuration': 2,
+  'integration:PackedCache mutation': 2,
+  'integration:custom WebSocket endpoint/port': 2,
+  'integration:Docker deployment/Dockerfile/exposed ports': 2,
+  'integration:Smithery configuration': 1,
+  'integration:Node npm executable/bin/publication surface': 3,
+  'integration:MCP registry server.json': 1,
+  'integration:MCP registry mcpName/mcpname': 2,
+  'integration:Glama registry metadata': 1,
+};
+
 const extensionCommands = [
   'assign_material',
   'duplicate_gameobject',
@@ -205,9 +226,11 @@ describe('2.0 release contract', () => {
     expect(fs.existsSync(legacySnapshotPath)).toBe(true);
     if (!fs.existsSync(legacySnapshotPath)) return;
 
-    const snapshot = JSON.parse(
-      fs.readFileSync(legacySnapshotPath, 'utf8'),
-    ) as LegacySnapshot;
+    const snapshotBytes = fs.readFileSync(legacySnapshotPath);
+    expect(createHash('sha256').update(snapshotBytes).digest('hex')).toBe(
+      legacySnapshotSha256,
+    );
+    const snapshot = JSON.parse(snapshotBytes.toString('utf8')) as LegacySnapshot;
     expect(snapshot).toMatchObject({
       schemaVersion: 1,
       sourceTag: '1.4.0',
@@ -221,6 +244,26 @@ describe('2.0 release contract', () => {
     expect(snapshot.integrations.map(({ id }) => id).sort()).toEqual(
       [...legacyConcepts].sort(),
     );
+    for (const integration of snapshot.integrations) {
+      expect(integration.evidence).toHaveLength(
+        legacyEvidenceCounts[
+          integration.id as (typeof legacyConcepts)[number]
+        ],
+      );
+      for (const evidence of integration.evidence) {
+        expect(evidence.path).toEqual(expect.any(String));
+        expect(evidence.path.length).toBeGreaterThan(0);
+        const evidenceKeys = Object.keys(evidence).sort();
+        if (evidence.absent !== undefined) {
+          expect(evidenceKeys).toEqual(['absent', 'path']);
+          expect(evidence.absent).toBe(true);
+        } else {
+          expect(evidenceKeys).toEqual(['contains', 'path']);
+          expect(evidence.contains).toEqual(expect.any(String));
+          expect(evidence.contains?.length).toBeGreaterThan(0);
+        }
+      }
+    }
 
     // Shallow clones and packaged UPM copies may not contain the tag object.
     // In those environments the checked-in snapshot above remains mandatory
@@ -514,20 +557,113 @@ describe('2.0 release contract', () => {
         );
       })
       .map((file) => fs.readFileSync(file, 'utf8'))
-      .join('\n');
+      .join('\n')
+      .toLowerCase();
 
-    for (const forbiddenText of [
-      'websocket-sharp',
-      'WebSocketSharp',
-      'localhost:8090',
-      'McpUnitySettings',
-      'com.unity.editorcoroutines',
-      'com.unity.nuget.newtonsoft-json',
-      'PackedCache',
-    ]) {
-      expect(productionText).not.toContain(forbiddenText);
-    }
+    expect(findForbiddenLegacyMarkers(productionText)).toEqual([]);
     expect(productionText).not.toMatch(/(^|[^0-9])8090([^0-9]|$)/);
+  });
+
+  test('detects mixed-case legacy markers after normalization', () => {
+    expect(
+      findForbiddenLegacyMarkers(
+        'WEBSOCKET-SHARP WebSocketSharp McPuNiTySeTtInGs LOCALHOST:8090 PACKEDCACHE',
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        'websocket-sharp',
+        'websocketsharp',
+        'mcpunitysettings',
+        'localhost:8090',
+        'packedcache',
+      ]),
+    );
+  });
+
+  test('does not trust a 1.4.0 tag owned by an unrelated consumer repository', () => {
+    if (process.env.MCP_UNITY_NESTED_CONSUMER_CHECK === '1') return;
+
+    const consumerRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'mcp-unity-consumer-git-'),
+    );
+    const packageRoot = path.join(
+      consumerRoot,
+      'Packages',
+      'com.gamelovers.mcp-unity',
+    );
+    try {
+      gitAt(consumerRoot, 'init', '--quiet');
+      fs.writeFileSync(
+        path.join(consumerRoot, 'consumer.txt'),
+        'unrelated consumer repository\n',
+      );
+      gitAt(consumerRoot, 'add', 'consumer.txt');
+      gitAt(
+        consumerRoot,
+        '-c',
+        'user.name=Contract Test',
+        '-c',
+        'user.email=contract-test@example.invalid',
+        'commit',
+        '--quiet',
+        '-m',
+        'consumer fixture',
+      );
+      gitAt(consumerRoot, 'tag', '1.4.0');
+      fs.cpSync(repositoryRoot, packageRoot, {
+        recursive: true,
+        filter: (source) => {
+          const relative = path
+            .relative(repositoryRoot, source)
+            .split(path.sep)
+            .join('/');
+          return ![
+            '.git',
+            'Server~/build',
+            'Server~/node_modules',
+          ].some(
+            (excluded) =>
+              relative === excluded || relative.startsWith(`${excluded}/`),
+          );
+        },
+      });
+      fs.symlinkSync(
+        path.join(serverRoot, 'node_modules'),
+        path.join(packageRoot, 'Server~', 'node_modules'),
+        'dir',
+      );
+
+      expect(gitObjectExistsAt(packageRoot, '1.4.0^{commit}')).toBe(false);
+      expect(() =>
+        execFileSync(
+          process.execPath,
+          [
+            '--experimental-vm-modules',
+            path.join(serverRoot, 'node_modules', 'jest', 'bin', 'jest.js'),
+            '--runInBand',
+            '--config',
+            path.join(packageRoot, 'Server~', 'jest.config.js'),
+            path.join(
+              packageRoot,
+              'Server~',
+              'src',
+              '__tests__',
+              'releaseContract.test.ts',
+            ),
+          ],
+          {
+            cwd: path.join(packageRoot, 'Server~'),
+            env: {
+              ...process.env,
+              MCP_UNITY_NESTED_CONSUMER_CHECK: '1',
+            },
+            stdio: 'pipe',
+          },
+        ),
+      ).not.toThrow();
+    } finally {
+      fs.rmSync(consumerRoot, { recursive: true, force: true });
+    }
   });
 
   test('marks untranslated readmes as legacy documentation', () => {
@@ -542,22 +678,61 @@ describe('2.0 release contract', () => {
 });
 
 function git(...args: string[]): string {
+  return gitAt(repositoryRoot, ...args);
+}
+
+function gitAt(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
-    cwd: repositoryRoot,
+    cwd,
     encoding: 'utf8',
   });
 }
 
 function gitObjectExists(objectName: string): boolean {
+  return gitObjectExistsAt(repositoryRoot, objectName);
+}
+
+function gitObjectExistsAt(cwd: string, objectName: string): boolean {
+  if (!ownsGitRepository(cwd)) return false;
   try {
     execFileSync('git', ['cat-file', '-e', objectName], {
-      cwd: repositoryRoot,
+      cwd,
       stdio: 'ignore',
     });
     return true;
   } catch {
     return false;
   }
+}
+
+function ownsGitRepository(packageRoot: string): boolean {
+  try {
+    const topLevel = execFileSync(
+      'git',
+      ['rev-parse', '--show-toplevel'],
+      {
+        cwd: packageRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
+    return fs.realpathSync(topLevel) === fs.realpathSync(packageRoot);
+  } catch {
+    return false;
+  }
+}
+
+function findForbiddenLegacyMarkers(source: string): string[] {
+  const normalizedSource = source.toLowerCase();
+  return [
+    'websocket-sharp',
+    'websocketsharp',
+    'localhost:8090',
+    'mcpunitysettings',
+    'com.unity.editorcoroutines',
+    'com.unity.nuget.newtonsoft-json',
+    'packedcache',
+  ].filter((marker) => normalizedSource.includes(marker));
 }
 
 function collectMatches(

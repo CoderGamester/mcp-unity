@@ -169,7 +169,8 @@
           "contains": "EXPOSE 8090 3000"
         },
         {
-          "path": "Server~/.dockerignore"
+          "path": "Server~/.dockerignore",
+          "contains": "# Node.js"
         }
       ]
     },

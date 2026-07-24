@@ -1,6 +1,4 @@
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -19,6 +17,15 @@ namespace McpUnity.Extensions.Commands
         internal const int PayloadBudgetBytes = 512 * 1024;
         internal const int AggregateWorkBudget = 4096;
         internal const int AggregateContentBudgetBytes = 384 * 1024;
+        private const int SerializedObjectReservationBytes = 256;
+        private const int SerializedIteratorReservationBytes = 128;
+        private const int SerializedPropertyEnvelopeBytes =
+            1024 +
+            2 + 256 * 6 +
+            2 + 1024 * 6 +
+            2 + 128 * 6;
+
+        internal static Action<string> PropertyReaderAllocationObserver { get; set; }
 
         [CliCommand("inspect_gameobject", "Inspect a bounded GameObject hierarchy with optional component and serialized-property details.")]
         public static InspectGameObjectResult Inspect(
@@ -246,7 +253,23 @@ namespace McpUnity.Extensions.Commands
         {
             try
             {
+                if (!TryReservePropertyReader(
+                        "serializedObject",
+                        SerializedObjectReservationBytes,
+                        summary,
+                        context))
+                {
+                    return;
+                }
                 var serializedObject = new SerializedObject(component);
+                if (!TryReservePropertyReader(
+                        "iterator",
+                        SerializedIteratorReservationBytes,
+                        summary,
+                        context))
+                {
+                    return;
+                }
                 var iterator = serializedObject.GetIterator();
                 var enterChildren = true;
                 while (true)
@@ -289,6 +312,11 @@ namespace McpUnity.Extensions.Commands
                         continue;
                     }
 
+                    if (!TryReservePropertyOutput(readResult, context))
+                    {
+                        MarkAggregatePropertyTruncation(summary, context);
+                        break;
+                    }
                     var property = new SerializedPropertyInspection
                     {
                         Name = BoundedString(iterator.displayName, 256, context),
@@ -300,13 +328,6 @@ namespace McpUnity.Extensions.Commands
                     };
                     if (property.ValueTruncated)
                         context.MarkPayloadTruncated("serializedValueBounds");
-                    if (!context.TryConsume(PropertyBudget(property)))
-                    {
-                        summary.PropertiesTruncated = true;
-                        summary.PropertiesOmittedAtLeast++;
-                        summary.PropertiesTruncationReason = "payloadBudget";
-                        break;
-                    }
 
                     summary.Properties.Add(property);
                     summary.PropertiesReturned = summary.Properties.Count;
@@ -314,12 +335,44 @@ namespace McpUnity.Extensions.Commands
             }
             catch (Exception exception)
             {
+                if (!context.Budget.TryReserve(
+                        1,
+                        256 + 2 + 1024 * 6))
+                {
+                    MarkAggregatePropertyTruncation(summary, context);
+                    return;
+                }
                 var boundedError = BoundedString(exception.Message, 1024, context);
-                summary.PropertiesError = context.TryConsume(
-                    256 + WorstCaseJsonStringBytes(boundedError))
-                    ? boundedError
-                    : "Inspection failed; error omitted at payload budget.";
+                summary.PropertiesError = boundedError;
             }
+        }
+
+        private static bool TryReservePropertyReader(
+            string stage,
+            int estimatedContentBytes,
+            ComponentInspection summary,
+            InspectionContext context)
+        {
+            if (!context.Budget.TryReserve(1, estimatedContentBytes))
+            {
+                MarkAggregatePropertyTruncation(summary, context);
+                return false;
+            }
+            PropertyReaderAllocationObserver?.Invoke(stage);
+            return true;
+        }
+
+        private static bool TryReservePropertyOutput(
+            SerializedPropertyReadResult readResult,
+            InspectionContext context)
+        {
+            var totalEstimatedBytes =
+                SerializedPropertyEnvelopeBytes +
+                readResult.ReservedContentBytes +
+                readResult.Truncations.Count * 512;
+            var additionalBytes =
+                totalEstimatedBytes - readResult.ReservedContentBytes;
+            return context.Budget.TryReserve(1, additionalBytes);
         }
 
         private static void MarkAggregatePropertyTruncation(
@@ -376,62 +429,6 @@ namespace McpUnity.Extensions.Commands
 
         private static int WorstCaseJsonStringBytes(string value) =>
             value == null ? 4 : 2 + value.Length * 6;
-
-        private static int PropertyBudget(SerializedPropertyInspection property) =>
-            1024 +
-            WorstCaseJsonStringBytes(property.Name) +
-            WorstCaseJsonStringBytes(property.Path) +
-            WorstCaseJsonStringBytes(property.Type) +
-            EstimateValueBytes(property.Value) +
-            property.ValueTruncations.Count * 512;
-
-        private static int EstimateValueBytes(object value)
-        {
-            var total = 0;
-            var pending = new Stack<object>();
-            pending.Push(value);
-            while (pending.Count > 0)
-            {
-                var current = pending.Pop();
-                if (current == null)
-                {
-                    total += 4;
-                    continue;
-                }
-                if (current is string text)
-                {
-                    total += WorstCaseJsonStringBytes(text);
-                    continue;
-                }
-                if (current is AuthoringResult identity)
-                {
-                    total += IdentityBudget(identity);
-                    continue;
-                }
-                if (current is IDictionary dictionary)
-                {
-                    total += 2 + dictionary.Count * 8;
-                    foreach (DictionaryEntry entry in dictionary)
-                    {
-                        total += WorstCaseJsonStringBytes(entry.Key?.ToString());
-                        pending.Push(entry.Value);
-                    }
-                    continue;
-                }
-                if (current is IEnumerable enumerable)
-                {
-                    total += 2;
-                    foreach (var item in enumerable)
-                    {
-                        total += 1;
-                        pending.Push(item);
-                    }
-                    continue;
-                }
-                total += 64;
-            }
-            return total;
-        }
 
         private static void StabilizePayloadBytes(InspectGameObjectResult result)
         {

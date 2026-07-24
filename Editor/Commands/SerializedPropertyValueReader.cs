@@ -20,8 +20,13 @@ namespace McpUnity.Extensions.Commands
         public int EstimatedContentBytes { get; private set; }
         public int ConversionCount { get; private set; }
         public int PropertiesScanned { get; private set; }
-        public bool WorkLimitReached { get; private set; }
-        public bool ContentLimitReached { get; private set; }
+        private bool WorkReservationRejected { get; set; }
+        private bool ContentReservationRejected { get; set; }
+        public bool WorkLimitReached =>
+            WorkUsed >= WorkBudget || WorkReservationRejected;
+        public bool ContentLimitReached =>
+            EstimatedContentBytes >= ContentBudgetBytes ||
+            ContentReservationRejected;
         public bool ConversionTruncated { get; private set; }
         public bool LimitReached => WorkLimitReached || ContentLimitReached;
         public string LimitReason =>
@@ -37,16 +42,22 @@ namespace McpUnity.Extensions.Commands
         {
             workUnits = Math.Max(0, workUnits);
             estimatedContentBytes = Math.Max(0, estimatedContentBytes);
+            if ((workUnits > 0 || estimatedContentBytes > 0) && LimitReached)
+            {
+                if (conversion || propertyScan)
+                    ConversionTruncated = true;
+                return false;
+            }
             if (WorkUsed > WorkBudget - workUnits)
             {
-                WorkLimitReached = true;
+                WorkReservationRejected = true;
                 if (conversion || propertyScan)
                     ConversionTruncated = true;
                 return false;
             }
             if (EstimatedContentBytes > ContentBudgetBytes - estimatedContentBytes)
             {
-                ContentLimitReached = true;
+                ContentReservationRejected = true;
                 if (conversion || propertyScan)
                     ConversionTruncated = true;
                 return false;
@@ -129,6 +140,8 @@ namespace McpUnity.Extensions.Commands
             result = null;
             if (!CanRead(property))
                 return false;
+            var initialWork = budget.WorkUsed;
+            var initialContent = budget.EstimatedContentBytes;
             if (!budget.TryReserve(1, 128))
             {
                 budget.MarkConversionTruncated();
@@ -139,7 +152,11 @@ namespace McpUnity.Extensions.Commands
             if (!TryReadValue(property, 0, budget, truncations, out var value))
                 return false;
 
-            result = new SerializedPropertyReadResult(value, truncations);
+            result = new SerializedPropertyReadResult(
+                value,
+                truncations,
+                budget.WorkUsed - initialWork,
+                budget.EstimatedContentBytes - initialContent);
             return true;
         }
 
@@ -153,7 +170,7 @@ namespace McpUnity.Extensions.Commands
             value = null;
             if (!budget.TryReserve(
                     1,
-                    EstimatedValueBytes(property),
+                    ConservativeValueReservationBytes(property),
                     conversion: true))
             {
                 return false;
@@ -471,7 +488,8 @@ namespace McpUnity.Extensions.Commands
             return true;
         }
 
-        private static int EstimatedValueBytes(SerializedProperty property)
+        private static int ConservativeValueReservationBytes(
+            SerializedProperty property)
         {
             if (property.isArray && property.propertyType != SerializedPropertyType.String)
                 return 32;
@@ -557,13 +575,19 @@ namespace McpUnity.Extensions.Commands
     {
         public SerializedPropertyReadResult(
             object value,
-            List<SerializationTruncationInspection> truncations)
+            List<SerializationTruncationInspection> truncations,
+            int reservedWorkUnits,
+            int reservedContentBytes)
         {
             Value = value;
             Truncations = truncations;
+            ReservedWorkUnits = reservedWorkUnits;
+            ReservedContentBytes = reservedContentBytes;
         }
 
         public object Value { get; }
         public List<SerializationTruncationInspection> Truncations { get; }
+        public int ReservedWorkUnits { get; }
+        public int ReservedContentBytes { get; }
     }
 }

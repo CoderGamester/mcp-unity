@@ -19347,7 +19347,9 @@ var MINIMUM_VERSION = {
 };
 function parseVersion(output) {
   for (const token of output.trim().split(/\s+/)) {
-    const parsed = parseSemVerToken(token);
+    const parsed = parseSemVerToken(
+      /^v[0-9]/.test(token) ? token.slice(1) : token
+    );
     if (parsed) return parsed;
   }
   return void 0;
@@ -34055,7 +34057,7 @@ var RESOURCE_TEMPLATES = [
     description: "Available Unity tests."
   }
 ];
-function createCompanionServer(resources) {
+function createCompanionServer(resources, options = {}) {
   const server = new McpServer(
     { name: "MCP Unity Companion", version: "2.0.0" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
@@ -34090,26 +34092,30 @@ function createCompanionServer(resources) {
       _meta: { ui: { prefersBorder: true } }
     },
     async () => {
-      const dashboard = readDashboardHtml();
-      return {
-        contents: [
-          {
-            uri: DASHBOARD_URI,
-            mimeType: dashboard.mimeType,
-            text: dashboard.text,
-            _meta: {
-              ui: {
-                csp: {
-                  connectDomains: [],
-                  resourceDomains: [],
-                  frameDomains: [],
-                  baseUriDomains: []
+      try {
+        const dashboard = (options.readDashboardHtml ?? readDashboardHtml)();
+        return {
+          contents: [
+            {
+              uri: DASHBOARD_URI,
+              mimeType: dashboard.mimeType,
+              text: dashboard.text,
+              _meta: {
+                ui: {
+                  csp: {
+                    connectDomains: [],
+                    resourceDomains: [],
+                    frameDomains: [],
+                    baseUriDomains: []
+                  }
                 }
               }
             }
-          }
-        ]
-      };
+          ]
+        };
+      } catch (error2) {
+        throw boundedError(error2);
+      }
     }
   );
   for (const definition of RESOURCE_TEMPLATES) {

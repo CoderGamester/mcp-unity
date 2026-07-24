@@ -16,10 +16,14 @@ async function connectedCompanion(
     content: [],
     structuredContent: { ok: true },
   }),
+  dashboardReader?: () => { text: string; mimeType: string },
 ) {
   const readTool = jest.fn(implementation);
   const unityClient: UnityReadClient = { readTool };
-  const server = createCompanionServer(new CompanionResourceService(unityClient));
+  const server = createCompanionServer(
+    new CompanionResourceService(unityClient),
+    dashboardReader ? { readDashboardHtml: dashboardReader } : undefined,
+  );
   const client = new Client(
     { name: 'companion-test', version: '1.0.0' },
     { capabilities: {} },
@@ -120,6 +124,37 @@ describe('outer MCP companion catalog', () => {
       expect(Buffer.byteLength(serialized)).toBeLessThanOrEqual(5 * 1024);
       expect(serialized).toContain('[truncated]');
       expect(serialized).not.toContain('outer-secret-tail');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test('bounds the serialized outer MCP dashboard error response', async () => {
+    const { client, server } = await connectedCompanion(
+      undefined,
+      () => {
+        throw new Error(
+          `dashboard-start-${'x'.repeat(16 * 1024 * 1024)}-dashboard-secret-tail`,
+        );
+      },
+    );
+    try {
+      let serialized = '';
+      try {
+        await client.readResource({ uri: 'ui://unity-dashboard' });
+        throw new Error('Expected the dashboard read to fail.');
+      } catch (error) {
+        serialized = JSON.stringify({
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
+
+      expect(Buffer.byteLength(serialized)).toBeLessThanOrEqual(5 * 1024);
+      expect(serialized).toContain('[truncated]');
+      expect(serialized).not.toContain('dashboard-secret-tail');
     } finally {
       await client.close();
       await server.close();

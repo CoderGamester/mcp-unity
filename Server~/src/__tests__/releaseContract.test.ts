@@ -509,6 +509,16 @@ describe('2.0 release contract', () => {
     expect(cleanSmoke).toContain("readResource({ uri: 'ui://unity-dashboard' })");
     expect(cleanSmoke).toContain("'text/html;profile=mcp-app'");
     expect(cleanSmoke).toContain('assertNoAncestorNodeModules');
+    expect(cleanSmoke).toContain("path.join(cleanServer, 'mcp')");
+    expect(cleanSmoke).toContain("'--unity-cli-path',\n      process.execPath");
+    expect(cleanSmoke).toContain(
+      "uri: 'unity://logs?severity=all&limit=1'",
+    );
+    expect(cleanSmoke).toContain('cwd: cleanServer');
+    expect(cleanSmoke).not.toContain('chmod');
+    expect(cleanSmoke).not.toContain('#!/bin/sh');
+    expect(cleanSmoke).not.toContain('.cmd');
+    expect(cleanSmoke).not.toContain('shell: true');
   });
 
   test('keeps every AI guidance file anchored to the 2.0 maintainer guide', () => {

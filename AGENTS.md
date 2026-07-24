@@ -53,7 +53,7 @@ README.md                 User setup and exhaustive 1.4 migration table
 CHANGELOG.md              Release notes
 ```
 
-`Server~` is private and bundled as one self-contained ESM entrypoint. Keep Node 20+, `@modelcontextprotocol/sdk@1.26.0`, `@modelcontextprotocol/ext-apps@1.0.1`, and `zod@3.25.76` exact until a coordinated upgrade is tested. It has no npm `bin`, publish configuration, registry manifest, Docker image, or Smithery surface. `npm run build` must regenerate `build/index.js`, copy the dashboard, and update `THIRD_PARTY_NOTICES.md`; `npm run build:check` must then prove parity. The Node 20 clean archive MCP smoke must initialize the shipped bundle and read the copied dashboard with no reachable `node_modules`. Never require package users to install npm dependencies.
+`Server~` is private and bundled as one self-contained ESM entrypoint. Keep Node 20+, `@modelcontextprotocol/sdk@1.26.0`, `@modelcontextprotocol/ext-apps@1.0.1`, and `zod@3.25.76` exact until a coordinated upgrade is tested. It has no npm `bin`, publish configuration, registry manifest, Docker image, or Smithery surface. `npm run build` must regenerate `build/index.js`, copy the dashboard, and update `THIRD_PARTY_NOTICES.md`; `npm run build:check` must then prove parity. The Node 20 clean archive MCP smoke must initialize the shipped bundle, launch its fake `mcp` child through `process.execPath`, and read the copied dashboard with no reachable `node_modules`, shell, chmod, or platform-specific command wrapper. Never require package users to install npm dependencies.
 
 ## Public catalogs
 
@@ -85,7 +85,7 @@ Everything else maps to the official Pipeline 0.3.1-exp.1 catalog. Legacy aliase
 
 1. Start with a failing EditMode test under `Editor/Tests`.
 2. Implement the command under `Editor/Commands` with Pipeline `[CliCommand]`, `[CliArg]`, `ObjectRef`, and `AuthoringResult` contracts.
-3. Keep inputs explicit and bounded. Inspection-like outputs need depth, count, collection, and string limits. `inspect_gameobject` must use one shared aggregate conversion-work budget across all component/property scans and lazy conversions, retain stable camelCase counters and limit markers, and serialize to at most 512 KiB.
+3. Keep inputs explicit and bounded. Inspection-like outputs need depth, count, collection, and string limits. `inspect_gameobject` must use one shared aggregate conversion-work budget across all component/property scans and lazy conversions, reserve before every serialized reader/iterator/wrapper allocation, treat exact exhaustion as unavailable to future work, avoid rewalking materialized values for accounting, retain stable camelCase counters and honest limit markers, and serialize to at most 512 KiB.
 4. Record Undo for scene/object mutation and record prefab instance modifications.
 5. Return stable DTOs with explicit camelCase serialization names.
 6. Update `CommandDiscoveryTests` so a collision with the pinned Pipeline catalog fails.
@@ -99,7 +99,7 @@ Do not add Node proxies for mutation commands.
 1. Start with a failing Jest test in `Server~/src/__tests__`.
 2. Map the URI to an official read-only Pipeline command or one of the five extensions in `Server~/src/resources/companionResources.ts`.
 3. Validate and bound all URI inputs. Every Unity-backed resource must remain at or below 512 KiB and carry honest top-level projection/truncation metadata; bound strings, arrays, objects, keys, depth, values, and traversal work.
-4. Decode structured content and JSON text defensively. Route transport, command, URI, CLI, disconnect, malformed-payload, and outer MCP resource errors through the centralized 4 KiB UTF-8-safe error-detail bound with an explicit `[truncated]` marker.
+4. Decode structured content and JSON text defensively. Route transport, command, URI, CLI, disconnect, malformed-payload, dashboard-read, and outer MCP resource errors through the centralized 4 KiB UTF-8-safe error-detail bound with an explicit `[truncated]` marker.
 5. Permit at most one reconnect/retry for a transport-interrupted read.
 6. Never retry, mirror, or expose a mutation tool.
 7. Register only the approved URI in `Server~/src/companionServer.ts` and update catalog contract tests.

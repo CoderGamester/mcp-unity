@@ -174,7 +174,9 @@ const MINIMUM_VERSION: ParsedVersion = {
 
 function parseVersion(output: string): ParsedVersion | undefined {
   for (const token of output.trim().split(/\s+/)) {
-    const parsed = parseSemVerToken(token);
+    const parsed = parseSemVerToken(
+      /^v[0-9]/.test(token) ? token.slice(1) : token,
+    );
     if (parsed) return parsed;
   }
   return undefined;

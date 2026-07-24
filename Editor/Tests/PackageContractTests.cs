@@ -172,6 +172,18 @@ namespace McpUnity.Extensions.Tests
                 Is.EqualTo("Assets/Material.mat"));
         }
 
+        [Test]
+        public void InspectCommand_DoesNotRewalkMaterializedPropertyValuesForBudgeting()
+        {
+            var package = PackageInfo.FindForAssembly(typeof(InspectGameObjectCommand).Assembly);
+            var source = File.ReadAllText(
+                Path.Combine(package.assetPath, "Editor/Commands/InspectGameObjectCommand.cs"));
+
+            Assert.That(source, Does.Not.Contain("EstimateValueBytes("));
+            Assert.That(source, Does.Not.Contain("Stack<object>"));
+            Assert.That(source, Does.Not.Contain("DictionaryEntry"));
+        }
+
         private static string CamelCase(string name) =>
             char.ToLowerInvariant(name[0]) + name.Substring(1);
     }

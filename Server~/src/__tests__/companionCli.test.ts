@@ -111,6 +111,18 @@ describe('Unity CLI resolution and compatibility', () => {
     );
   });
 
+  test('accepts the leading v emitted by node --version for portable smoke CLIs', async () => {
+    const result = await checkUnityCli(process.execPath, async () => ({
+      stdout: 'v20.20.2',
+      stderr: '',
+    }));
+
+    expect(result.version).toBe('20.20.2');
+    expect(result.warning).toBe(
+      'Unity CLI 20.20.2 is newer than the tested major version 1.',
+    );
+  });
+
   test.each(['0.9.9', '1.0.0-alpha.9', '1.0.0-beta.1'])(
     'rejects incompatible version %s with documentation',
     async (version) => {

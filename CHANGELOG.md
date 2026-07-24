@@ -17,8 +17,8 @@ All notable changes to MCP Unity are documented here.
 - User-initiated `Window > MCP Unity > Setup` flow for Pipeline status, Unity CLI detection, official installation instructions, and configuration copying.
 - Optional read-oriented companion resources, prompts, and dashboard.
 - Exhaustive 1.4.0 migration table and release-contract tests.
-- A self-contained Node 20 companion bundle with generated third-party notices plus clean-archive startup and stdio dashboard verification.
-- Aggregate 512 KiB output ceilings for `inspect_gameobject` and every companion resource, including a shared inspection conversion-work budget, explicit component/property/projection truncation metadata, stack-safe adversarial payload handling, and 4 KiB bounded companion error details.
+- A self-contained Node 20 companion bundle with generated third-party notices plus portable shell-free clean-archive startup, fake child MCP, and stdio dashboard verification.
+- Aggregate 512 KiB output ceilings for `inspect_gameobject` and every companion resource, including exact-boundary pre-allocation work accounting without a second value traversal, explicit component/property/projection truncation metadata, stack-safe adversarial payload handling, and 4 KiB bounded companion errors including dashboard failures.
 
 ### Experimental dependencies
 

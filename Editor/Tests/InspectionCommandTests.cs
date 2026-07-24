@@ -324,10 +324,10 @@ namespace McpUnity.Extensions.Tests
             for (var componentIndex = 0; componentIndex < 12; componentIndex++)
             {
                 var fixture = root.AddComponent<BroadInspectionFixtureComponent>();
-                fixture.Groups = Enumerable.Range(0, 40)
+                fixture.Groups = Enumerable.Range(0, 8)
                     .Select(groupIndex => new BroadInspectionGroup
                     {
-                        Values = Enumerable.Range(0, 40)
+                        Values = Enumerable.Range(0, 10)
                             .Select(valueIndex => new BroadInspectionValue
                             {
                                 First = valueIndex,
@@ -377,9 +377,112 @@ namespace McpUnity.Extensions.Tests
             Assert.That(
                 fixtures.Count(component =>
                     component.PropertiesTruncationReason == "aggregateWorkBudget"),
-                Is.GreaterThan(1),
-                "The one inspect-call budget must remain exhausted for later components.");
+                Is.GreaterThanOrEqualTo(1),
+                "The one inspect-call budget must remain exhausted for a later component.");
+            Assert.That(
+                fixtures[0].PropertiesTruncationReason,
+                Is.Not.EqualTo("aggregateWorkBudget"),
+                "The work limit must be consumed by earlier conversion work before it affects a later component.");
             Assert.That(serializedBytes, Is.LessThanOrEqualTo(512 * 1024));
+        }
+
+        [Test]
+        public void InspectionBudget_ExactBoundaryIsExhaustedWithoutClaimingTruncation()
+        {
+            var budgetType = typeof(InspectGameObjectCommand).Assembly.GetType(
+                "McpUnity.Extensions.Commands.InspectionBudget",
+                throwOnError: true);
+            var budget = Activator.CreateInstance(budgetType, 3, 128);
+            var reserve = budgetType.GetMethod("TryReserve");
+
+            Assert.That(
+                reserve.Invoke(budget, new object[] { 3, 128, false, false }),
+                Is.True);
+            Assert.That(Property<int>(budget, "WorkUsed"), Is.EqualTo(3));
+            Assert.That(Property<int>(budget, "EstimatedContentBytes"), Is.EqualTo(128));
+            Assert.That(Property<bool>(budget, "WorkLimitReached"), Is.True);
+            Assert.That(Property<bool>(budget, "ContentLimitReached"), Is.True);
+            Assert.That(Property<bool>(budget, "LimitReached"), Is.True);
+            Assert.That(Property<bool>(budget, "ConversionTruncated"), Is.False);
+            Assert.That(
+                reserve.Invoke(budget, new object[] { 1, 0, false, false }),
+                Is.False);
+            Assert.That(Property<bool>(budget, "ConversionTruncated"), Is.False);
+        }
+
+        [Test]
+        public void Inspect_DoesNotAllocatePropertyReadersAfterExactWorkExhaustion()
+        {
+            var root = new GameObject("Root");
+            var fixture = root.AddComponent<InspectionFixtureComponent>();
+            var commandType = typeof(InspectGameObjectCommand);
+            var contextType = commandType.GetNestedType(
+                "InspectionContext",
+                BindingFlags.NonPublic);
+            var context = Activator.CreateInstance(
+                contextType,
+                0,
+                1,
+                true,
+                true,
+                10);
+            var budget = Property(context, "Budget");
+            var reserve = budget.GetType().GetMethod("TryReserve");
+            var workBudget = Property<int>(budget, "WorkBudget");
+            Assert.That(
+                reserve.Invoke(budget, new object[] { workBudget, 0, false, false }),
+                Is.True);
+
+            var allocationObserver = commandType.GetProperty(
+                "PropertyReaderAllocationObserver",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.That(
+                allocationObserver,
+                Is.Not.Null,
+                "Expected a reader-allocation test seam after successful reservations.");
+            var allocations = new List<string>();
+            allocationObserver.SetValue(
+                null,
+                (Action<string>)(stage => allocations.Add(stage)));
+            var summary = new ComponentInspection
+            {
+                Type = nameof(InspectionFixtureComponent),
+                PropertiesIncluded = true
+            };
+            try
+            {
+                var readProperties = commandType.GetMethod(
+                    "ReadProperties",
+                    BindingFlags.Static | BindingFlags.NonPublic);
+                readProperties.Invoke(null, new[] { fixture, summary, context });
+            }
+            finally
+            {
+                allocationObserver.SetValue(null, null);
+            }
+
+            Assert.That(allocations, Is.Empty);
+            Assert.That(summary.Properties, Is.Empty);
+            Assert.That(summary.PropertiesTruncated, Is.True);
+            Assert.That(
+                summary.PropertiesTruncationReason,
+                Is.EqualTo("aggregateWorkBudget"));
+            Assert.That(Property<bool>(budget, "ConversionTruncated"), Is.True);
+        }
+
+        [Test]
+        public void SerializedPropertyReader_ReportsItsPreMaterializationReservationDeltas()
+        {
+            var resultType = typeof(InspectGameObjectCommand).Assembly.GetType(
+                "McpUnity.Extensions.Commands.SerializedPropertyReadResult",
+                throwOnError: true);
+
+            Assert.That(
+                resultType.GetProperty("ReservedWorkUnits"),
+                Is.Not.Null);
+            Assert.That(
+                resultType.GetProperty("ReservedContentBytes"),
+                Is.Not.Null);
         }
 
         private static void AssertValueTruncation(

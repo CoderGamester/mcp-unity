@@ -1,4 +1,4 @@
-import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -12,7 +12,7 @@ const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'mcp-unity-clean-mcp-
 const cleanPackage = path.join(temporaryRoot, 'package');
 const cleanServer = path.join(cleanPackage, 'Server~');
 const projectPath = path.join(temporaryRoot, 'UnityProject');
-const fakeCli = path.join(temporaryRoot, 'unity-cli');
+const fakeMcp = path.join(cleanServer, 'mcp');
 let client;
 let transport;
 
@@ -32,10 +32,39 @@ try {
   await mkdir(path.join(projectPath, 'Assets'), { recursive: true });
   await mkdir(path.join(projectPath, 'ProjectSettings'), { recursive: true });
   await writeFile(
-    fakeCli,
-    '#!/bin/sh\nif [ "$1" = "--version" ]; then\n  echo "1.0.0-beta.2"\n  exit 0\nfi\nexit 64\n',
+    fakeMcp,
+    [
+      "import readline from 'node:readline';",
+      '',
+      'const input = readline.createInterface({ input: process.stdin });',
+      "input.on('line', (line) => {",
+      '  const request = JSON.parse(line);',
+      '  if (request.id === undefined) return;',
+      '  let result;',
+      "  if (request.method === 'initialize') {",
+      '    result = {',
+      '      protocolVersion: request.params.protocolVersion,',
+      '      capabilities: { tools: {} },',
+      "      serverInfo: { name: 'portable-fake-unity-mcp', version: '1.0.0' },",
+      '    };',
+      "  } else if (request.method === 'tools/call') {",
+      '    result = {',
+      "      content: [{ type: 'text', text: '{\"logs\":[]}' }],",
+      '      structuredContent: { logs: [] },',
+      '    };',
+      '  } else {',
+      '    result = {};',
+      '  }',
+      '  process.stdout.write(JSON.stringify({',
+      "    jsonrpc: '2.0',",
+      '    id: request.id,',
+      '    result,',
+      "  }) + '\\n');",
+      '});',
+      '',
+    ].join('\n'),
+    'utf8',
   );
-  await chmod(fakeCli, 0o755);
 
   assertNoAncestorNodeModules(cleanServer);
 
@@ -63,7 +92,7 @@ try {
       '--project-path',
       projectPath,
       '--unity-cli-path',
-      fakeCli,
+      process.execPath,
     ],
     cwd: cleanServer,
     stderr: 'pipe',
@@ -94,6 +123,14 @@ try {
     !('csp' in content._meta.ui)
   ) {
     throw new Error('Bundled dashboard resource did not return MCP App metadata.');
+  }
+
+  const logs = await client.readResource({
+    uri: 'unity://logs?severity=all&limit=1',
+  });
+  const logsPayload = JSON.parse(logs.contents[0]?.text ?? 'null');
+  if (!Array.isArray(logsPayload?.logs)) {
+    throw new Error('Portable fake MCP server did not return Unity logs.');
   }
 } finally {
   await client?.close().catch(() => undefined);

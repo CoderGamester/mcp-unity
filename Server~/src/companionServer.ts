@@ -39,8 +39,13 @@ const RESOURCE_TEMPLATES = [
   },
 ] as const;
 
+export interface CompanionServerOptions {
+  readDashboardHtml?: typeof readDashboardHtml;
+}
+
 export function createCompanionServer(
   resources: CompanionResourceService,
+  options: CompanionServerOptions = {},
 ): McpServer {
   const server = new McpServer(
     { name: 'MCP Unity Companion', version: '2.0.0' },
@@ -78,26 +83,32 @@ export function createCompanionServer(
       _meta: { ui: { prefersBorder: true } },
     },
     async () => {
-      const dashboard = readDashboardHtml();
-      return {
-        contents: [
-          {
-            uri: DASHBOARD_URI,
-            mimeType: dashboard.mimeType,
-            text: dashboard.text,
-            _meta: {
-              ui: {
-                csp: {
-                  connectDomains: [],
-                  resourceDomains: [],
-                  frameDomains: [],
-                  baseUriDomains: [],
+      try {
+        const dashboard = (
+          options.readDashboardHtml ?? readDashboardHtml
+        )();
+        return {
+          contents: [
+            {
+              uri: DASHBOARD_URI,
+              mimeType: dashboard.mimeType,
+              text: dashboard.text,
+              _meta: {
+                ui: {
+                  csp: {
+                    connectDomains: [],
+                    resourceDomains: [],
+                    frameDomains: [],
+                    baseUriDomains: [],
+                  },
                 },
               },
             },
-          },
-        ],
-      };
+          ],
+        };
+      } catch (error) {
+        throw boundedError(error);
+      }
     },
   );
 

@@ -88,7 +88,7 @@ namespace McpUnity.Extensions.Setup
             {
                 var package = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(AssignMaterialCommand).Assembly);
                 EditorGUIUtility.systemCopyBuffer = UnityCliConfiguration.CreateCompanion(
-                    package.assetPath,
+                    package.resolvedPath,
                     projectPath,
                     checkResult.Candidate.ExecutablePath,
                     checkResult.Candidate.IsExplicitAbsolutePath);

@@ -6,12 +6,18 @@ namespace McpUnity.Extensions.Setup
 {
     public sealed class UnityCliProcessResult
     {
-        public UnityCliProcessResult(string standardOutput, string standardError, int exitCode, bool timedOut)
+        public UnityCliProcessResult(
+            string standardOutput,
+            string standardError,
+            int exitCode,
+            bool timedOut,
+            bool cancelled = false)
         {
             StandardOutput = standardOutput ?? string.Empty;
             StandardError = standardError ?? string.Empty;
             ExitCode = exitCode;
             TimedOut = timedOut;
+            Cancelled = cancelled;
         }
 
         public string StandardOutput { get; }
@@ -21,6 +27,8 @@ namespace McpUnity.Extensions.Setup
         public int ExitCode { get; }
 
         public bool TimedOut { get; }
+
+        public bool Cancelled { get; }
     }
 
     public interface IUnityCliProcessRunner
@@ -79,7 +87,7 @@ namespace McpUnity.Extensions.Setup
             var output = process.StandardOutput + Environment.NewLine + process.StandardError;
             var compatibility = UnityCliVersionClassifier.Classify(
                 output,
-                process.ExitCode == 0,
+                process.ExitCode == 0 && !process.Cancelled,
                 process.TimedOut);
             return new UnityCliCheckResult(candidate, process, compatibility);
         }

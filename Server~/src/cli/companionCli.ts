@@ -1,7 +1,10 @@
-import { execFile } from 'node:child_process';
+import {
+  spawn,
+  type ChildProcess,
+  type SpawnOptions,
+} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 export const CLI_DOCUMENTATION_URL =
   'https://docs.unity.com/en-us/unity-cli/use-unity-cli';
@@ -52,6 +55,9 @@ export function parseCompanionArguments(
   if (!isUnityProject(projectPath)) {
     throw new Error(`--project-path must identify an existing Unity project: ${projectPath}`);
   }
+  if (unityCliPath && !path.isAbsolute(unityCliPath)) {
+    throw new Error('--unity-cli-path must be absolute.');
+  }
 
   return { projectPath: path.resolve(projectPath), unityCliPath };
 }
@@ -60,7 +66,8 @@ export function resolveUnityCliPath(
   explicitPath: string | undefined,
   environment: NodeJS.ProcessEnv = process.env,
 ): string {
-  return explicitPath || environment.UNITY_CLI_PATH || 'unity';
+  const environmentPath = environment.UNITY_CLI_PATH?.trim();
+  return explicitPath || environmentPath || 'unity';
 }
 
 export interface VersionCommandResult {
@@ -71,7 +78,13 @@ export interface VersionCommandResult {
 export type VersionRunner = (
   command: string,
   args: readonly string[],
+  options?: VersionRunOptions,
 ) => Promise<VersionCommandResult>;
+
+export interface VersionRunOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
 
 export interface CheckedUnityCli {
   command: string;
@@ -81,11 +94,12 @@ export interface CheckedUnityCli {
 
 export async function checkUnityCli(
   command: string,
-  runVersion: VersionRunner = defaultVersionRunner,
+  runVersion: VersionRunner = runUnityCliVersion,
+  options: VersionRunOptions = {},
 ): Promise<CheckedUnityCli> {
   let output: VersionCommandResult;
   try {
-    output = await runVersion(command, ['--version']);
+    output = await runVersion(command, ['--version'], options);
   } catch (error) {
     throw actionableCliError(
       `Unity CLI could not be started at "${command}": ${errorMessage(error)}`,
@@ -120,45 +134,65 @@ interface ParsedVersion {
   major: bigint;
   minor: bigint;
   patch: bigint;
-  prerelease?: {
-    label: 'alpha' | 'beta' | 'rc';
-    number: bigint;
-  };
+  prerelease: SemVerIdentifier[];
+  build: string[];
 }
 
-const VERSION_PATTERN =
-  /(?:^|[^0-9])([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(alpha|beta|rc)\.([0-9]+))?(?:\+[0-9A-Za-z.-]+)?(?:$|[^0-9A-Za-z.+-])/i;
+type SemVerIdentifier =
+  | { numeric: true; value: bigint; raw: string }
+  | { numeric: false; value: string; raw: string };
+
+const SEMVER_PATTERN =
+  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 
 const MINIMUM_VERSION: ParsedVersion = {
   raw: '1.0.0-beta.2',
   major: 1n,
   minor: 0n,
   patch: 0n,
-  prerelease: { label: 'beta', number: 2n },
+  prerelease: [
+    { numeric: false, value: 'beta', raw: 'beta' },
+    { numeric: true, value: 2n, raw: '2' },
+  ],
+  build: [],
 };
 
 function parseVersion(output: string): ParsedVersion | undefined {
-  const match = VERSION_PATTERN.exec(output);
-  if (!match) {
-    return undefined;
+  for (const token of output.trim().split(/\s+/)) {
+    const parsed = parseSemVerToken(token);
+    if (parsed) return parsed;
   }
+  return undefined;
+}
 
-  const prereleaseLabel = match[4]?.toLowerCase() as
-    | 'alpha'
-    | 'beta'
-    | 'rc'
-    | undefined;
-  const raw = `${match[1]}.${match[2]}.${match[3]}${
-    prereleaseLabel ? `-${prereleaseLabel}.${match[5]}` : ''
-  }`;
+function parseSemVerToken(token: string): ParsedVersion | undefined {
+  const match = SEMVER_PATTERN.exec(token);
+  if (!match) return undefined;
+  const prereleaseTokens = match[4]?.split('.') ?? [];
+  const prerelease: SemVerIdentifier[] = [];
+  for (const identifier of prereleaseTokens) {
+    if (/^[0-9]+$/.test(identifier)) {
+      if (identifier.length > 1 && identifier.startsWith('0')) return undefined;
+      prerelease.push({
+        numeric: true,
+        value: BigInt(identifier),
+        raw: identifier,
+      });
+    } else {
+      prerelease.push({
+        numeric: false,
+        value: identifier,
+        raw: identifier,
+      });
+    }
+  }
   return {
-    raw,
+    raw: token,
     major: BigInt(match[1]),
     minor: BigInt(match[2]),
     patch: BigInt(match[3]),
-    prerelease: prereleaseLabel
-      ? { label: prereleaseLabel, number: BigInt(match[5]) }
-      : undefined,
+    prerelease,
+    build: match[5]?.split('.') ?? [],
   };
 }
 
@@ -169,16 +203,32 @@ function compareVersion(left: ParsedVersion, right: ParsedVersion): number {
     }
   }
 
-  if (!left.prerelease && !right.prerelease) return 0;
-  if (!left.prerelease) return 1;
-  if (!right.prerelease) return -1;
+  if (left.prerelease.length === 0 && right.prerelease.length === 0) return 0;
+  if (left.prerelease.length === 0) return 1;
+  if (right.prerelease.length === 0) return -1;
 
-  const order = { alpha: 0, beta: 1, rc: 2 } as const;
-  if (left.prerelease.label !== right.prerelease.label) {
-    return order[left.prerelease.label] > order[right.prerelease.label] ? 1 : -1;
+  const identifierCount = Math.max(
+    left.prerelease.length,
+    right.prerelease.length,
+  );
+  for (let index = 0; index < identifierCount; index++) {
+    const leftIdentifier = left.prerelease[index];
+    const rightIdentifier = right.prerelease[index];
+    if (!leftIdentifier) return -1;
+    if (!rightIdentifier) return 1;
+    if (leftIdentifier.numeric && rightIdentifier.numeric) {
+      if (leftIdentifier.value === rightIdentifier.value) continue;
+      return leftIdentifier.value > rightIdentifier.value ? 1 : -1;
+    }
+    if (leftIdentifier.numeric !== rightIdentifier.numeric) {
+      return leftIdentifier.numeric ? -1 : 1;
+    }
+    const leftValue = leftIdentifier.value as string;
+    const rightValue = rightIdentifier.value as string;
+    if (leftValue === rightValue) continue;
+    return leftValue > rightValue ? 1 : -1;
   }
-  if (left.prerelease.number === right.prerelease.number) return 0;
-  return left.prerelease.number > right.prerelease.number ? 1 : -1;
+  return 0;
 }
 
 function defaultUnityProjectValidator(candidate: string): boolean {
@@ -193,15 +243,118 @@ function defaultUnityProjectValidator(candidate: string): boolean {
   }
 }
 
-async function defaultVersionRunner(
+type SpawnVersionProcess = (
   command: string,
   args: readonly string[],
+  options: SpawnOptions,
+) => Pick<ChildProcess, 'stdout' | 'stderr' | 'pid' | 'once' | 'kill'>;
+
+export async function runUnityCliVersion(
+  command: string,
+  args: readonly string[],
+  options: VersionRunOptions = {},
+  spawnProcess: SpawnVersionProcess = spawn,
 ): Promise<VersionCommandResult> {
-  const result = await promisify(execFile)(command, [...args], {
-    encoding: 'utf8',
-    timeout: 10_000,
+  if (args.length !== 1 || args[0] !== '--version') {
+    throw new Error('Unity CLI validation may invoke only --version.');
+  }
+  if (options.signal?.aborted) {
+    throw new Error('Unity CLI version check was cancelled.');
+  }
+
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const detached = process.platform !== 'win32';
+  return new Promise<VersionCommandResult>((resolve, reject) => {
+    let child: ReturnType<SpawnVersionProcess>;
+    try {
+      child = spawnProcess(command, [...args], {
+        shell: false,
+        detached,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const maxOutputBytes = 64 * 1024;
+
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', cancel);
+    };
+    const finish = (
+      error?: Error,
+      result?: VersionCommandResult,
+    ): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve(result ?? { stdout, stderr });
+    };
+    const terminate = (): void => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      if (detached && child.pid) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+          return;
+        } catch {
+          // The process group may already have exited.
+        }
+      }
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // The child already exited.
+      }
+    };
+    const append = (target: 'stdout' | 'stderr', chunk: unknown): void => {
+      if (settled) return;
+      const value = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      if (target === 'stdout') stdout += value;
+      else stderr += value;
+      if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > maxOutputBytes) {
+        terminate();
+        finish(new Error('Unity CLI version output exceeded 64 KiB.'));
+      }
+    };
+    const cancel = (): void => {
+      terminate();
+      finish(new Error('Unity CLI version check was cancelled.'));
+    };
+    const timeout = setTimeout(() => {
+      terminate();
+      finish(new Error(`Unity CLI version check timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+
+    child.stdout?.on('data', (chunk) => append('stdout', chunk));
+    child.stderr?.on('data', (chunk) => append('stderr', chunk));
+    child.once('error', (error) => finish(error));
+    child.once('close', (code, signal) => {
+      if (code === 0) {
+        finish(undefined, { stdout, stderr });
+      } else {
+        finish(
+          new Error(
+            `Unity CLI --version exited with ${
+              signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`
+            }.`,
+          ),
+        );
+      }
+    });
+    if (options.signal?.aborted) {
+      cancel();
+    } else {
+      options.signal?.addEventListener('abort', cancel, { once: true });
+    }
   });
-  return { stdout: result.stdout, stderr: result.stderr };
 }
 
 function actionableCliError(message: string): Error {

@@ -58,6 +58,16 @@ export function createCompanionServer(resources) {
                     uri: DASHBOARD_URI,
                     mimeType: dashboard.mimeType,
                     text: dashboard.text,
+                    _meta: {
+                        ui: {
+                            csp: {
+                                connectDomains: [],
+                                resourceDomains: [],
+                                frameDomains: [],
+                                baseUriDomains: [],
+                            },
+                        },
+                    },
                 },
             ],
         };

@@ -9,6 +9,10 @@ import {
 
 export interface OfficialUnitySession {
   callTool(name: string, args: Record<string, unknown>): Promise<CallToolResult>;
+}
+
+export interface OfficialUnitySessionStart {
+  readonly ready: Promise<OfficialUnitySession>;
   close(): Promise<void>;
 }
 
@@ -19,7 +23,7 @@ export interface OfficialUnitySessionOptions {
 
 export type OfficialUnitySessionFactory = (
   options: OfficialUnitySessionOptions,
-) => Promise<OfficialUnitySession>;
+) => OfficialUnitySessionStart;
 
 export type UnityConnectionState =
   | 'disconnected'
@@ -31,11 +35,22 @@ export interface OfficialUnityMcpClientOptions extends OfficialUnitySessionOptio
   sessionFactory?: OfficialUnitySessionFactory;
 }
 
+interface OwnedConnection {
+  start: OfficialUnitySessionStart;
+  session: OfficialUnitySession;
+}
+
+const CLOSED_MESSAGE = 'Official Unity MCP client is closed.';
+
 export class OfficialUnityMcpClient {
   private readonly options: OfficialUnitySessionOptions;
   private readonly sessionFactory: OfficialUnitySessionFactory;
-  private session?: OfficialUnitySession;
-  private sessionPromise?: Promise<OfficialUnitySession>;
+  private readonly closedStarts = new WeakSet<OfficialUnitySessionStart>();
+  private readonly closeSignal: Promise<void>;
+  private signalClose!: () => void;
+  private active?: OwnedConnection;
+  private activeStart?: OfficialUnitySessionStart;
+  private startupPromise?: Promise<OwnedConnection>;
   private connectionState: UnityConnectionState = 'disconnected';
   private closed = false;
 
@@ -44,7 +59,10 @@ export class OfficialUnityMcpClient {
       cliPath: options.cliPath,
       projectPath: options.projectPath,
     };
-    this.sessionFactory = options.sessionFactory ?? createOfficialUnitySession;
+    this.sessionFactory = options.sessionFactory ?? createOfficialUnitySessionStart;
+    this.closeSignal = new Promise<void>((resolve) => {
+      this.signalClose = resolve;
+    });
   }
 
   get state(): UnityConnectionState {
@@ -56,20 +74,23 @@ export class OfficialUnityMcpClient {
     args: Record<string, unknown>,
   ): Promise<CallToolResult> {
     this.assertOpen();
-    const firstSession = await this.getSession();
+    const firstConnection = await this.getConnection();
     try {
-      return await firstSession.callTool(name, args);
+      return await this.raceWithClose(firstConnection.session.callTool(name, args));
     } catch (firstError) {
       if (!isTransportInterruption(firstError)) {
         throw firstError;
       }
-      await this.discardSession(firstSession);
+
+      this.discardConnection(firstConnection);
       this.assertOpen();
-      const retrySession = await this.getSession();
+      const retryConnection = await this.getConnection();
       try {
-        return await retrySession.callTool(name, args);
+        return await this.raceWithClose(retryConnection.session.callTool(name, args));
       } catch (retryError) {
-        await this.discardSession(retrySession);
+        if (isTransportInterruption(retryError)) {
+          this.discardConnection(retryConnection);
+        }
         throw retryError;
       }
     }
@@ -79,71 +100,102 @@ export class OfficialUnityMcpClient {
     if (this.closed) return;
     this.closed = true;
     this.connectionState = 'closed';
+    this.signalClose();
 
-    const pending = this.sessionPromise;
-    this.sessionPromise = undefined;
-    const active = this.session;
-    this.session = undefined;
-
-    if (active) {
-      await active.close();
-      return;
-    }
-    if (pending) {
-      try {
-        await (await pending).close();
-      } catch {
-        // Startup already failed; there is no live child to close.
-      }
+    const start = this.activeStart;
+    this.active = undefined;
+    this.activeStart = undefined;
+    this.startupPromise = undefined;
+    if (start) {
+      this.closeStart(start);
     }
   }
 
-  private async getSession(): Promise<OfficialUnitySession> {
+  private async getConnection(): Promise<OwnedConnection> {
     this.assertOpen();
-    if (this.session) return this.session;
-    if (this.sessionPromise) return this.sessionPromise;
+    if (this.active) return this.active;
+    if (this.startupPromise) {
+      return this.raceWithClose(this.startupPromise);
+    }
 
     this.connectionState = 'connecting';
-    const pending = this.sessionFactory(this.options);
-    this.sessionPromise = pending;
+    let start: OfficialUnitySessionStart;
     try {
-      const created = await pending;
-      if (this.closed) {
-        await created.close();
-        throw new Error('Official Unity MCP client is closed.');
-      }
-      this.session = created;
-      this.connectionState = 'connected';
-      return created;
+      start = this.sessionFactory(this.options);
     } catch (error) {
-      if (!this.closed) {
-        this.connectionState = 'disconnected';
-      }
+      this.connectionState = 'disconnected';
       throw error;
-    } finally {
-      if (this.sessionPromise === pending) {
-        this.sessionPromise = undefined;
-      }
     }
+
+    this.activeStart = start;
+    const pending = start.ready
+      .then((session): OwnedConnection => {
+        if (this.closed || this.activeStart !== start) {
+          this.closeStart(start);
+          throw new Error(CLOSED_MESSAGE);
+        }
+        const connection = { start, session };
+        this.active = connection;
+        this.connectionState = 'connected';
+        return connection;
+      })
+      .catch((error: unknown) => {
+        if (this.activeStart === start) {
+          this.activeStart = undefined;
+          if (!this.closed) {
+            this.connectionState = 'disconnected';
+          }
+        }
+        this.closeStart(start);
+        throw error;
+      })
+      .finally(() => {
+        if (this.startupPromise === pending) {
+          this.startupPromise = undefined;
+        }
+      });
+    this.startupPromise = pending;
+
+    return this.raceWithClose(pending);
   }
 
-  private async discardSession(candidate: OfficialUnitySession): Promise<void> {
-    if (this.session === candidate) {
-      this.session = undefined;
+  private discardConnection(candidate: OwnedConnection): void {
+    if (this.active?.start === candidate.start) {
+      this.active = undefined;
+    }
+    if (this.activeStart === candidate.start) {
+      this.activeStart = undefined;
     }
     if (!this.closed) {
       this.connectionState = 'disconnected';
     }
+    this.closeStart(candidate.start);
+  }
+
+  private closeStart(start: OfficialUnitySessionStart): void {
+    if (this.closedStarts.has(start)) return;
+    this.closedStarts.add(start);
     try {
-      await candidate.close();
+      void start.close().catch(() => {
+        // A broken or terminating child may reject close; ownership is still released.
+      });
     } catch {
-      // The transport is already broken; retry startup is still safe.
+      // A synchronous close failure must not block shutdown or reconnection.
     }
+  }
+
+  private async raceWithClose<T>(operation: Promise<T>): Promise<T> {
+    return Promise.race([
+      operation,
+      this.closeSignal.then(() => {
+        throw new Error(CLOSED_MESSAGE);
+      }),
+    ]);
   }
 
   private assertOpen(): void {
     if (this.closed) {
-      throw new Error('Official Unity MCP client is closed.');
+      throw new Error(CLOSED_MESSAGE);
     }
   }
 }
@@ -167,9 +219,9 @@ function isTransportInterruption(error: unknown): boolean {
     /Unity CLI process exited/i.test(message);
 }
 
-async function createOfficialUnitySession(
+function createOfficialUnitySessionStart(
   options: OfficialUnitySessionOptions,
-): Promise<OfficialUnitySession> {
+): OfficialUnitySessionStart {
   const transport = new StdioClientTransport({
     command: options.cliPath,
     args: ['mcp', '--project-path', options.projectPath],
@@ -179,16 +231,37 @@ async function createOfficialUnitySession(
     { name: 'mcp-unity-companion', version: '2.0.0' },
     { capabilities: {} },
   );
-  await client.connect(transport);
+  let closeRequested = false;
+  let closeStarted = false;
+
+  // Client.connect takes ownership of the transport synchronously before its first
+  // await, so close() can terminate startup even while MCP initialization is pending.
+  const ready = client.connect(transport).then((): OfficialUnitySession => {
+    if (closeRequested) {
+      throw new Error(CLOSED_MESSAGE);
+    }
+    return {
+      callTool: async (name, args) => {
+        const result = await client.callTool(
+          { name, arguments: args },
+          CallToolResultSchema,
+        );
+        return CallToolResultSchema.parse(result);
+      },
+    };
+  });
 
   return {
-    callTool: async (name, args) => {
-      const result = await client.callTool(
-        { name, arguments: args },
-        CallToolResultSchema,
-      );
-      return CallToolResultSchema.parse(result);
+    ready,
+    async close(): Promise<void> {
+      if (closeStarted) return;
+      closeStarted = true;
+      closeRequested = true;
+      // Initiate teardown immediately but do not make companion shutdown wait for
+      // the SDK's bounded graceful-process termination sequence.
+      void client.close().catch(() => {
+        // Startup or the child transport may already have failed.
+      });
     },
-    close: () => client.close(),
   };
 }

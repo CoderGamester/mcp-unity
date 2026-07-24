@@ -98,6 +98,7 @@ describe('companion resource mappings', () => {
         truncated: true,
         maxNodes: 3,
         returnedNodes: 3,
+        totalNodesKnown: true,
         totalNodes: 5,
         omittedNodes: 2,
       },
@@ -117,6 +118,72 @@ describe('companion resource mappings', () => {
     await expect(
       resources.read('unity://scenes-hierarchy?max_nodes=nope'),
     ).rejects.toThrow('max_nodes');
+  });
+
+  test('bounds a 15k-deep hierarchy with stack-safe iterative traversal', async () => {
+    let node: Record<string, unknown> = { name: 'leaf', children: [] };
+    for (let depth = 0; depth < 15_000; depth++) {
+      node = { name: `node-${depth}`, children: [node] };
+    }
+    const client = clientWith(async () => toolResult({ roots: [node] }));
+    const resources = new CompanionResourceService(client);
+
+    const result = await resources.read(
+      'unity://scenes-hierarchy?max_nodes=2000',
+    );
+    const truncation = result.payload.truncation as Record<string, unknown>;
+
+    expect(truncation).toMatchObject({
+      truncated: true,
+      maxNodes: 2000,
+      returnedNodes: 2000,
+      totalNodesKnown: false,
+      totalNodesAtLeast: 8001,
+      omittedNodesAtLeast: 6001,
+      traversalBudget: 8000,
+      visitedNodes: 8000,
+    });
+
+    let output = (result.payload.roots as Array<Record<string, unknown>>)[0];
+    let outputCount = 1;
+    while ((output.children as unknown[]).length > 0) {
+      output = (output.children as Array<Record<string, unknown>>)[0];
+      outputCount++;
+    }
+    expect(outputCount).toBe(2000);
+    expect(output.childrenTruncated).toBe(true);
+    expect(output.omittedDescendantsKnown).toBe(false);
+  });
+
+  test('bounds very wide hierarchies without scanning or cloning every child', async () => {
+    const children = Array.from({ length: 50_000 }, (_, index) => ({
+      name: `child-${index}`,
+      components: ['Transform'],
+      children: [],
+    }));
+    const client = clientWith(async () =>
+      toolResult({ roots: [{ name: 'root', children }] }),
+    );
+    const resources = new CompanionResourceService(client);
+
+    const result = await resources.read(
+      'unity://scenes-hierarchy?max_nodes=2',
+    );
+    const truncation = result.payload.truncation as Record<string, unknown>;
+    const root = (result.payload.roots as Array<Record<string, unknown>>)[0];
+
+    expect(truncation).toMatchObject({
+      returnedNodes: 2,
+      totalNodesKnown: false,
+      totalNodesAtLeast: 1027,
+      omittedNodesAtLeast: 1025,
+      traversalBudget: 1026,
+      visitedNodes: 1026,
+    });
+    expect((root.children as unknown[])).toHaveLength(1);
+    expect(root.childrenTruncated).toBe(true);
+    expect(root.omittedDescendants).toBe(1024);
+    expect(root.omittedDescendantsKnown).toBe(false);
   });
 
   test('maps a GameObject target to bounded inspect_gameobject defaults', async () => {

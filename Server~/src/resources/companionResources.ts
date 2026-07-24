@@ -197,63 +197,175 @@ function truncateHierarchy(
   maxNodes: number,
 ): Record<string, unknown> {
   const sourceRoots = Array.isArray(hierarchy.roots) ? hierarchy.roots : [];
-  const totalNodes = sourceRoots.reduce(
-    (total, root) => total + countHierarchyNodes(root),
-    0,
+  const traversalBudget = Math.min(
+    10_000,
+    Math.max(maxNodes * 4, maxNodes + 1024),
   );
+  const roots: HierarchyOutputNode[] = [];
+  const frames: HierarchyTraversalFrame[] = [];
+  const omissionOwners = new Set<HierarchyOutputNode>();
+  let rootIndex = 0;
+  let visitedNodes = 0;
   let returnedNodes = 0;
+  let rootsTruncated = false;
 
-  const cloneNode = (source: unknown): Record<string, unknown> | undefined => {
-    if (!isRecord(source) || returnedNodes >= maxNodes) return undefined;
-    returnedNodes++;
+  while (visitedNodes < traversalBudget) {
+    let source: unknown;
+    let parentOutput: HierarchyOutputNode | undefined;
+    let inheritedOmissionOwner: HierarchyOutputNode | undefined;
+    let isRoot = false;
 
-    const sourceChildren = Array.isArray(source.children) ? source.children : [];
-    const children: Record<string, unknown>[] = [];
-    let omittedDescendants = 0;
-    for (let index = 0; index < sourceChildren.length; index++) {
-      if (returnedNodes >= maxNodes) {
-        omittedDescendants += sourceChildren
-          .slice(index)
-          .reduce((total, child) => total + countHierarchyNodes(child), 0);
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1];
+      if (frame.nextChild < frame.children.length) {
+        source = frame.children[frame.nextChild++];
+        parentOutput = frame.output;
+        inheritedOmissionOwner = frame.omissionOwner;
         break;
       }
-      const child = cloneNode(sourceChildren[index]);
-      if (child) children.push(child);
+      frames.pop();
     }
 
-    return {
-      ...source,
-      children,
-      childrenTruncated:
-        source.childrenTruncated === true || omittedDescendants > 0,
-      ...(omittedDescendants > 0 ? { omittedDescendants } : {}),
-    };
-  };
+    if (source === undefined) {
+      if (rootIndex >= sourceRoots.length) break;
+      source = sourceRoots[rootIndex++];
+      isRoot = true;
+    }
 
-  const roots: Record<string, unknown>[] = [];
-  for (const root of sourceRoots) {
-    const cloned = cloneNode(root);
-    if (!cloned) break;
-    roots.push(cloned);
+    visitedNodes++;
+    if (!isRecord(source)) continue;
+
+    let output: HierarchyOutputNode | undefined;
+    let omissionOwner: HierarchyOutputNode | undefined;
+    if (returnedNodes < maxNodes && (isRoot || parentOutput !== undefined)) {
+      output = projectHierarchyNode(source);
+      returnedNodes++;
+      if (parentOutput) {
+        parentOutput.children.push(output);
+      } else {
+        roots.push(output);
+      }
+    } else {
+      omissionOwner = parentOutput ?? inheritedOmissionOwner;
+      if (omissionOwner) {
+        omissionOwner.childrenTruncated = true;
+        omissionOwner.omittedDescendants =
+          (omissionOwner.omittedDescendants ?? 0) + 1;
+        omissionOwners.add(omissionOwner);
+      } else {
+        rootsTruncated = true;
+      }
+    }
+
+    const children = Array.isArray(source.children) ? source.children : [];
+    if (children.length > 0) {
+      frames.push({
+        children,
+        nextChild: 0,
+        output,
+        omissionOwner: output ? undefined : omissionOwner,
+      });
+    }
   }
 
+  const hasRemaining =
+    rootIndex < sourceRoots.length ||
+    frames.some((frame) => frame.nextChild < frame.children.length);
+  const totalNodesKnown = !hasRemaining;
+
+  if (totalNodesKnown) {
+    for (const owner of omissionOwners) {
+      owner.omittedDescendantsKnown = true;
+    }
+  } else {
+    if (rootIndex < sourceRoots.length) rootsTruncated = true;
+    for (const owner of omissionOwners) {
+      owner.omittedDescendantsKnown = false;
+    }
+    for (const frame of frames) {
+      if (frame.nextChild >= frame.children.length) continue;
+      const owner = frame.output ?? frame.omissionOwner;
+      if (owner) {
+        owner.childrenTruncated = true;
+        owner.omittedDescendantsKnown = false;
+      } else {
+        rootsTruncated = true;
+      }
+    }
+  }
+
+  const truncation = totalNodesKnown
+    ? {
+        truncated: returnedNodes < visitedNodes,
+        maxNodes,
+        traversalBudget,
+        visitedNodes,
+        returnedNodes,
+        totalNodesKnown: true,
+        totalNodes: visitedNodes,
+        omittedNodes: visitedNodes - returnedNodes,
+        rootsTruncated,
+      }
+    : {
+        truncated: true,
+        maxNodes,
+        traversalBudget,
+        visitedNodes,
+        returnedNodes,
+        totalNodesKnown: false,
+        totalNodesAtLeast: visitedNodes + 1,
+        omittedNodesAtLeast: visitedNodes + 1 - returnedNodes,
+        rootsTruncated,
+      };
+
   return {
-    ...hierarchy,
+    ...projectHierarchyMetadata(hierarchy),
     roots,
-    truncation: {
-      truncated: returnedNodes < totalNodes,
-      maxNodes,
-      returnedNodes,
-      totalNodes,
-      omittedNodes: totalNodes - returnedNodes,
-    },
+    truncation,
   };
 }
 
-function countHierarchyNodes(value: unknown): number {
-  if (!isRecord(value)) return 0;
-  const children = Array.isArray(value.children) ? value.children : [];
-  return 1 + children.reduce((total, child) => total + countHierarchyNodes(child), 0);
+interface HierarchyOutputNode extends Record<string, unknown> {
+  children: HierarchyOutputNode[];
+  childrenTruncated: boolean;
+  omittedDescendants?: number;
+  omittedDescendantsKnown?: boolean;
+}
+
+interface HierarchyTraversalFrame {
+  children: unknown[];
+  nextChild: number;
+  output?: HierarchyOutputNode;
+  omissionOwner?: HierarchyOutputNode;
+}
+
+function projectHierarchyNode(
+  source: Record<string, unknown>,
+): HierarchyOutputNode {
+  const output: HierarchyOutputNode = {
+    children: [],
+    childrenTruncated: source.childrenTruncated === true,
+  };
+  for (const field of [
+    'name',
+    'instanceId',
+    'hierarchyPath',
+    'activeSelf',
+    'components',
+  ]) {
+    if (field in source) output[field] = source[field];
+  }
+  return output;
+}
+
+function projectHierarchyMetadata(
+  hierarchy: Record<string, unknown>,
+): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {};
+  for (const field of ['sceneName', 'scenePath', 'isDirty', 'isActive']) {
+    if (field in hierarchy) metadata[field] = hierarchy[field];
+  }
+  return metadata;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

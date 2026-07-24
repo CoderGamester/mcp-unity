@@ -1,7 +1,10 @@
 import { jest } from '@jest/globals';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/ext-apps';
 import { createCompanionServer } from '../companionServer.js';
 import {
   CompanionResourceService,
@@ -100,6 +103,16 @@ describe('outer MCP companion catalog', () => {
       expect(toolResult.isError).not.toBe(true);
       const app = await client.readResource({ uri: 'ui://unity-dashboard' });
       expect(app.contents[0].mimeType).toBe('text/html;profile=mcp-app');
+      expect(app.contents[0]._meta).toEqual({
+        ui: {
+          csp: {
+            connectDomains: [],
+            resourceDomains: [],
+            frameDomains: [],
+            baseUriDomains: [],
+          },
+        },
+      });
       const html = app.contents[0].text as string;
       for (const resource of [
         'unity://logs',
@@ -115,12 +128,26 @@ describe('outer MCP companion catalog', () => {
       expect(html).toContain('MIN_REFRESH_MS');
       expect(html).toContain('Pipeline');
       expect(html).toContain('truncation');
+      expect(html).toContain('totalNodesKnown');
+      expect(html).toContain('totalNodesAtLeast');
+      expect(LATEST_PROTOCOL_VERSION).toBe('2026-01-26');
+      expect(html).toContain("const PROTOCOL_VERSION = '2026-01-26'");
+      expect(html).toContain('event.source !== window.parent');
       expect(html).not.toContain('set_play_mode_status');
       expect(html).not.toContain('tools/call');
     } finally {
       await client.close();
       await server.close();
     }
+  });
+
+  test('built dashboard retains the validated app protocol and parent-source guard', () => {
+    const html = fs.readFileSync(
+      path.join(process.cwd(), 'build', 'ui', 'unity-dashboard.html'),
+      'utf8',
+    );
+    expect(html).toContain("const PROTOCOL_VERSION = '2026-01-26'");
+    expect(html).toContain('event.source !== window.parent');
   });
 
   test('prompts use official Pipeline and five extension command names without aliases', async () => {

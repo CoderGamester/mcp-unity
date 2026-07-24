@@ -49,7 +49,7 @@ unity://tests/{mode}
 ui://unity-dashboard</pre></section>
     </main>
     <script>
-      const PROTOCOL_VERSION = '2025-11-21';
+      const PROTOCOL_VERSION = '2026-01-26';
       const MIN_REFRESH_MS = 5000;
       const REQUEST_TIMEOUT_MS = 15000;
       const pending = new Map();
@@ -70,6 +70,7 @@ ui://unity-dashboard</pre></section>
         });
       }
       window.addEventListener('message', (event) => {
+        if (event.source !== window.parent) return;
         const message = event.data;
         if (!message || message.jsonrpc !== '2.0' || message.id == null) return;
         const entry = pending.get(String(message.id));
@@ -105,9 +106,12 @@ ui://unity-dashboard</pre></section>
           render('hierarchy', hierarchy);
           render('packages', packages);
           render('tests', tests);
+          const hierarchyLimit = hierarchy.truncation;
           document.getElementById('truncation').textContent =
-            hierarchy.truncation && hierarchy.truncation.truncated
-              ? `Truncated: ${hierarchy.truncation.returnedNodes}/${hierarchy.truncation.totalNodes} nodes`
+            hierarchyLimit && hierarchyLimit.truncated
+              ? hierarchyLimit.totalNodesKnown
+                ? `Truncated: ${hierarchyLimit.returnedNodes}/${hierarchyLimit.totalNodes} nodes`
+                : `Truncated: ${hierarchyLimit.returnedNodes} returned; at least ${hierarchyLimit.totalNodesAtLeast} nodes`
               : 'Hierarchy is complete.';
           const connection = document.getElementById('connection');
           connection.textContent = 'CLI / Pipeline connected';

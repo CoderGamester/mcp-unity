@@ -76,6 +76,12 @@ namespace McpUnity.Extensions.Tests
                 Is.EqualTo(UnityCliCompatibility.MissingOrFailed));
             Assert.That(UnityCliVersionClassifier.Classify("unity 1.0.0+build!", true, false).Status,
                 Is.EqualTo(UnityCliCompatibility.MissingOrFailed));
+            Assert.That(UnityCliVersionClassifier.Classify("unity 1.0.0+build_meta", true, false).Status,
+                Is.EqualTo(UnityCliCompatibility.MissingOrFailed));
+            Assert.That(UnityCliVersionClassifier.Classify("unity 1.0.0+build@meta", true, false).Status,
+                Is.EqualTo(UnityCliCompatibility.MissingOrFailed));
+            Assert.That(UnityCliVersionClassifier.Classify("Unity CLI version: 1.0.0+build.7 (stable)", true, false).Status,
+                Is.EqualTo(UnityCliCompatibility.Compatible));
         }
 
         [Test]

@@ -27,7 +27,7 @@ namespace McpUnity.Extensions.Setup
     public static class UnityCliVersionClassifier
     {
         private static readonly Regex VersionPattern = new Regex(
-            @"(?<![0-9])(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*)(?:-(?<pre>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+(?<build>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?=$|[^0-9A-Za-z.+!-])",
+            @"(?<![0-9])(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*)(?:-(?<pre>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+(?<build>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?=$|[\s,;:()\[\]{}])",
             RegexOptions.Compiled);
 
         public static UnityCliCompatibilityResult Classify(string output, bool processSucceeded, bool timedOut)

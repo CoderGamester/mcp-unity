@@ -182,7 +182,10 @@ namespace McpUnity.Extensions.Commands
                     var referenced = property.objectReferenceValue;
                     if (referenced is MonoScript)
                         return false;
-                    value = referenced == null ? null : ObjectResolver.Describe(referenced);
+                    value = referenced == null
+                        ? null
+                        : InspectGameObjectCommand.BoundedIdentity(
+                            ObjectResolver.Describe(referenced));
                     return true;
                 case SerializedPropertyType.Generic:
                     return TryReadObject(property, depth, truncations, out value);
@@ -273,7 +276,19 @@ namespace McpUnity.Extensions.Commands
 
                 supportedCount++;
                 if (TryReadValue(iterator, depth + 1, truncations, out var childValue))
-                    values[iterator.name] = childValue;
+                {
+                    var key = iterator.name ?? string.Empty;
+                    if (key.Length > 256)
+                    {
+                        truncations.Add(Truncation(
+                            iterator,
+                            "propertyNameLength",
+                            256,
+                            key.Length));
+                        key = key.Substring(0, 256);
+                    }
+                    values[key] = childValue;
+                }
             }
 
             value = values;
@@ -287,7 +302,9 @@ namespace McpUnity.Extensions.Commands
             int? originalCount) =>
             new SerializationTruncationInspection
             {
-                Path = property.propertyPath,
+                Path = property.propertyPath?.Length > 1024
+                    ? property.propertyPath.Substring(0, 1024)
+                    : property.propertyPath,
                 Reason = reason,
                 Limit = limit,
                 OriginalCount = originalCount

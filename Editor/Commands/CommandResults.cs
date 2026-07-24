@@ -24,6 +24,30 @@ namespace McpUnity.Extensions.Commands
 
         [DataMember(Name = "nodeLimitReached")]
         public bool NodeLimitReached { get; set; }
+
+        [DataMember(Name = "maxComponentsPerGameObject")]
+        public int MaxComponentsPerGameObject { get; set; }
+
+        [DataMember(Name = "maxTotalComponents")]
+        public int MaxTotalComponents { get; set; }
+
+        [DataMember(Name = "componentsReturned")]
+        public int ComponentsReturned { get; set; }
+
+        [DataMember(Name = "componentLimitReached")]
+        public bool ComponentLimitReached { get; set; }
+
+        [DataMember(Name = "payloadBudgetBytes")]
+        public int PayloadBudgetBytes { get; set; }
+
+        [DataMember(Name = "payloadBytes")]
+        public int PayloadBytes { get; set; }
+
+        [DataMember(Name = "payloadTruncated")]
+        public bool PayloadTruncated { get; set; }
+
+        [DataMember(Name = "payloadTruncationReason")]
+        public string PayloadTruncationReason { get; set; }
     }
 
     [DataContract]
@@ -79,6 +103,12 @@ namespace McpUnity.Extensions.Commands
 
         [DataMember(Name = "components")]
         public List<ComponentInspection> Components { get; set; } = new List<ComponentInspection>();
+
+        [DataMember(Name = "componentsTruncated")]
+        public bool ComponentsTruncated { get; set; }
+
+        [DataMember(Name = "componentsOmitted")]
+        public int ComponentsOmitted { get; set; }
     }
 
     [DataContract]
@@ -140,6 +170,15 @@ namespace McpUnity.Extensions.Commands
 
         [DataMember(Name = "propertiesTruncated")]
         public bool PropertiesTruncated { get; set; }
+
+        [DataMember(Name = "propertiesReturned")]
+        public int PropertiesReturned { get; set; }
+
+        [DataMember(Name = "propertiesOmittedAtLeast")]
+        public int PropertiesOmittedAtLeast { get; set; }
+
+        [DataMember(Name = "propertiesTruncationReason")]
+        public string PropertiesTruncationReason { get; set; }
 
         [DataMember(Name = "propertiesError")]
         public string PropertiesError { get; set; }

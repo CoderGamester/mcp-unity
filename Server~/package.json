@@ -9,7 +9,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "node scripts/clean-build.mjs && tsc && node scripts/copy-ui.mjs",
+    "build": "node scripts/build-bundle.mjs",
+    "build:check": "node scripts/build-bundle.mjs --check",
     "start": "node build/index.js",
     "watch": "tsc --watch",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js",
@@ -29,6 +30,7 @@
     "@modelcontextprotocol/inspector": "^0.20.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.13.10",
+    "esbuild": "0.28.1",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.5",
     "typescript": "^5.8.2"

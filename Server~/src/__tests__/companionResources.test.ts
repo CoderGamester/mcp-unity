@@ -25,6 +25,58 @@ function clientWith(
 }
 
 describe('companion resource mappings', () => {
+  test.each([
+    ['unity://logs?limit=1000', { logs: [{ message: 'x'.repeat(16 * 1024 * 1024) }] }],
+    ['unity://gameobject/Player', { root: { name: 'x'.repeat(16 * 1024 * 1024) } }],
+    ['unity://packages', { packages: [{ name: 'x'.repeat(16 * 1024 * 1024) }] }],
+    ['unity://tests/all', { tests: [{ name: 'x'.repeat(16 * 1024 * 1024) }] }],
+  ])('aggregate-bounds %s payloads at 512 KiB', async (uri, payload) => {
+    const resources = new CompanionResourceService(
+      clientWith(async () => toolResult(payload)),
+    );
+
+    const result = await resources.read(uri);
+    const serializedBytes = Buffer.byteLength(JSON.stringify(result.payload));
+
+    expect(serializedBytes).toBeLessThanOrEqual(512 * 1024);
+    expect(result.payload.projection).toMatchObject({
+      truncated: true,
+      payloadBudgetBytes: 512 * 1024,
+      projectedBytes: serializedBytes,
+    });
+  });
+
+  test('projects adversarial deep and wide payloads without stack overflow', async () => {
+    let deep: Record<string, unknown> = { value: 'leaf' };
+    for (let depth = 0; depth < 20_000; depth++) {
+      deep = { child: deep };
+    }
+    const payload = {
+      deep,
+      ['k'.repeat(100_000)]: 'bounded-key',
+      wide: Object.fromEntries(
+        Array.from({ length: 50_000 }, (_, index) => [
+          `key-${index}`,
+          'x'.repeat(256),
+        ]),
+      ),
+    };
+    const resources = new CompanionResourceService(
+      clientWith(async () => toolResult(payload)),
+    );
+
+    const result = await resources.read('unity://logs');
+
+    expect(Buffer.byteLength(JSON.stringify(result.payload))).toBeLessThanOrEqual(
+      512 * 1024,
+    );
+    expect(result.payload.projection).toMatchObject({
+      truncated: true,
+      depthLimitReached: true,
+      truncatedKeys: 1,
+    });
+  });
+
   test('maps logs with defaults and clamped limits', async () => {
     const client = clientWith(async () => toolResult({ logs: [] }));
     const resources = new CompanionResourceService(client);

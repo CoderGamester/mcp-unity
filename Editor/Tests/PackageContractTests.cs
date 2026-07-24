@@ -135,7 +135,15 @@ namespace McpUnity.Extensions.Tests
                     "maxNodes",
                     "maxPropertiesPerComponent",
                     "nodesReturned",
-                    "nodeLimitReached"
+                    "nodeLimitReached",
+                    "maxComponentsPerGameObject",
+                    "maxTotalComponents",
+                    "componentsReturned",
+                    "componentLimitReached",
+                    "payloadBudgetBytes",
+                    "payloadBytes",
+                    "payloadTruncated",
+                    "payloadTruncationReason"
                 }));
             Assert.That((string)inspectJson["root"]["name"], Is.EqualTo("Root"));
             Assert.That((float)inspectJson["root"]["transform"]["localPosition"]["x"], Is.EqualTo(1f));

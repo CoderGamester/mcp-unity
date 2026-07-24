@@ -28,6 +28,14 @@ const COMPONENT_NAME_MAX_LENGTH = 128;
 const HIERARCHY_PAYLOAD_BUDGET_BYTES = 512 * 1024;
 const HIERARCHY_ENVELOPE_RESERVE_BYTES = 16 * 1024;
 const HIERARCHY_DYNAMIC_MARKER_RESERVE_PER_NODE = 128;
+const RESOURCE_PAYLOAD_BUDGET_BYTES = 512 * 1024;
+const RESOURCE_PROJECTION_RESERVE_BYTES = 16 * 1024;
+const RESOURCE_MAX_STRING_LENGTH = 16 * 1024;
+const RESOURCE_MAX_KEY_LENGTH = 256;
+const RESOURCE_MAX_ARRAY_ITEMS = 1000;
+const RESOURCE_MAX_OBJECT_KEYS = 256;
+const RESOURCE_MAX_DEPTH = 32;
+const RESOURCE_MAX_VALUES = 20_000;
 
 export class CompanionResourceService {
   constructor(private readonly client: UnityReadClient) {}
@@ -60,7 +68,7 @@ export class CompanionResourceService {
         );
         const path = parsed.searchParams.get('path');
         const args = path ? { path } : {};
-        const result = await this.call(uri, 'get_scene_hierarchy', args);
+        const result = await this.call(uri, 'get_scene_hierarchy', args, false);
         return {
           uri,
           payload: truncateHierarchy(result.payload, maxNodes),
@@ -103,6 +111,7 @@ export class CompanionResourceService {
     uri: string,
     command: string,
     args: Record<string, unknown>,
+    project = true,
   ): Promise<CompanionResourcePayload> {
     let result: CallToolResult;
     try {
@@ -112,7 +121,9 @@ export class CompanionResourceService {
     }
     return {
       uri,
-      payload: decodeToolPayload(command, result),
+      payload: project
+        ? projectResourcePayload(decodeToolPayload(command, result))
+        : decodeToolPayload(command, result),
     };
   }
 }
@@ -204,6 +215,228 @@ function firstText(result: CallToolResult): string | undefined {
       content.type === 'text',
   );
   return item?.text;
+}
+
+interface ResourceProjectionNotice {
+  truncated: boolean;
+  payloadBudgetBytes: number;
+  projectedBytes: number;
+  payloadBudgetReached?: boolean;
+  depthLimitReached?: boolean;
+  valueLimitReached?: boolean;
+  collectionLimitReached?: boolean;
+  keyLimitReached?: boolean;
+  keyCollisionDetected?: boolean;
+  cycleDetected?: boolean;
+  truncatedStrings?: number;
+  truncatedKeys?: number;
+  omittedValues?: number;
+}
+
+interface ResourceProjectionFrame {
+  source: Record<string, unknown> | unknown[];
+  output: Record<string, unknown> | unknown[];
+  entries: Array<[string | number, unknown]>;
+  nextEntry: number;
+  depth: number;
+}
+
+function projectResourcePayload(
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const output: Record<string, unknown> = {};
+  const notice: ResourceProjectionNotice = {
+    truncated: false,
+    payloadBudgetBytes: RESOURCE_PAYLOAD_BUDGET_BYTES,
+    projectedBytes: 0,
+  };
+  const seen = new WeakSet<object>();
+  seen.add(source);
+  const frames: ResourceProjectionFrame[] = [
+    {
+      source,
+      output,
+      entries: boundedEntries(source, notice),
+      nextEntry: 0,
+      depth: 0,
+    },
+  ];
+  let projectedBytes = 2;
+  let valuesVisited = 0;
+
+  while (frames.length > 0) {
+    const frame = frames[frames.length - 1];
+    if (frame.nextEntry >= frame.entries.length) {
+      frames.pop();
+      continue;
+    }
+    if (valuesVisited >= RESOURCE_MAX_VALUES) {
+      markResourceProjection(notice, 'valueLimitReached');
+      notice.omittedValues =
+        (notice.omittedValues ?? 0) +
+        remainingFrameEntries(frames);
+      break;
+    }
+
+    const [rawKey, sourceValue] = frame.entries[frame.nextEntry++];
+    valuesVisited++;
+    let outputKey: string | number = rawKey;
+    if (
+      typeof rawKey === 'string' &&
+      rawKey.length > RESOURCE_MAX_KEY_LENGTH
+    ) {
+      outputKey = rawKey.slice(0, RESOURCE_MAX_KEY_LENGTH);
+      markResourceProjection(notice);
+      notice.truncatedKeys = (notice.truncatedKeys ?? 0) + 1;
+    }
+    const keyCost =
+      Array.isArray(frame.output)
+        ? frame.output.length > 0
+          ? 1
+          : 0
+        : (Object.keys(frame.output).length > 0 ? 1 : 0) +
+          jsonBytes(String(outputKey)) +
+          1;
+    if (
+      !Array.isArray(frame.output) &&
+      Object.prototype.hasOwnProperty.call(frame.output, String(outputKey))
+    ) {
+      markResourceProjection(notice, 'keyCollisionDetected');
+      notice.omittedValues = (notice.omittedValues ?? 0) + 1;
+      continue;
+    }
+
+    let projectedValue: unknown;
+    let childFrame: ResourceProjectionFrame | undefined;
+    if (typeof sourceValue === 'string') {
+      const bounded = sourceValue.slice(0, RESOURCE_MAX_STRING_LENGTH);
+      if (bounded.length !== sourceValue.length) {
+        markResourceProjection(notice);
+        notice.truncatedStrings = (notice.truncatedStrings ?? 0) + 1;
+      }
+      projectedValue = bounded;
+    } else if (
+      sourceValue === null ||
+      typeof sourceValue === 'boolean' ||
+      typeof sourceValue === 'number'
+    ) {
+      projectedValue =
+        typeof sourceValue === 'number' && !Number.isFinite(sourceValue)
+          ? null
+          : sourceValue;
+    } else if (
+      Array.isArray(sourceValue) ||
+      isRecord(sourceValue)
+    ) {
+      if (frame.depth >= RESOURCE_MAX_DEPTH) {
+        markResourceProjection(notice, 'depthLimitReached');
+        notice.omittedValues = (notice.omittedValues ?? 0) + 1;
+        continue;
+      }
+      if (seen.has(sourceValue)) {
+        markResourceProjection(notice, 'cycleDetected');
+        notice.omittedValues = (notice.omittedValues ?? 0) + 1;
+        continue;
+      }
+      seen.add(sourceValue);
+      const childOutput: Record<string, unknown> | unknown[] =
+        Array.isArray(sourceValue) ? [] : {};
+      projectedValue = childOutput;
+      childFrame = {
+        source: sourceValue,
+        output: childOutput,
+        entries: boundedEntries(sourceValue, notice),
+        nextEntry: 0,
+        depth: frame.depth + 1,
+      };
+    } else {
+      markResourceProjection(notice);
+      notice.omittedValues = (notice.omittedValues ?? 0) + 1;
+      continue;
+    }
+
+    const valueCost =
+      childFrame === undefined ? jsonBytes(projectedValue) : 2;
+    if (
+      projectedBytes + keyCost + valueCost >
+      RESOURCE_PAYLOAD_BUDGET_BYTES - RESOURCE_PROJECTION_RESERVE_BYTES
+    ) {
+      markResourceProjection(notice, 'payloadBudgetReached');
+      notice.omittedValues =
+        (notice.omittedValues ?? 0) +
+        1 +
+        remainingFrameEntries(frames);
+      break;
+    }
+
+    if (Array.isArray(frame.output)) {
+      frame.output.push(projectedValue);
+    } else {
+      frame.output[String(outputKey)] = projectedValue;
+    }
+    projectedBytes += keyCost + valueCost;
+    if (childFrame) frames.push(childFrame);
+  }
+
+  output.projection = notice;
+  stabilizeResourceProjection(output, notice);
+  return output;
+}
+
+function boundedEntries(
+  source: Record<string, unknown> | unknown[],
+  notice: ResourceProjectionNotice,
+): Array<[string | number, unknown]> {
+  if (Array.isArray(source)) {
+    const count = Math.min(source.length, RESOURCE_MAX_ARRAY_ITEMS);
+    if (count < source.length) {
+      markResourceProjection(notice, 'collectionLimitReached');
+      notice.omittedValues =
+        (notice.omittedValues ?? 0) + source.length - count;
+    }
+    return Array.from({ length: count }, (_, index) => [index, source[index]]);
+  }
+
+  const keys = Object.keys(source);
+  const count = Math.min(keys.length, RESOURCE_MAX_OBJECT_KEYS);
+  if (count < keys.length) {
+    markResourceProjection(notice, 'keyLimitReached');
+    notice.omittedValues = (notice.omittedValues ?? 0) + keys.length - count;
+  }
+  return keys.slice(0, count).map((key) => [key, source[key]]);
+}
+
+function remainingFrameEntries(frames: ResourceProjectionFrame[]): number {
+  return frames.reduce(
+    (total, frame) => total + frame.entries.length - frame.nextEntry,
+    0,
+  );
+}
+
+function markResourceProjection(
+  notice: ResourceProjectionNotice,
+  flag?:
+    | 'payloadBudgetReached'
+    | 'depthLimitReached'
+    | 'valueLimitReached'
+    | 'collectionLimitReached'
+    | 'keyLimitReached'
+    | 'keyCollisionDetected'
+    | 'cycleDetected',
+): void {
+  notice.truncated = true;
+  if (flag) notice[flag] = true;
+}
+
+function stabilizeResourceProjection(
+  output: Record<string, unknown>,
+  notice: ResourceProjectionNotice,
+): void {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const bytes = jsonBytes(output);
+    if (notice.projectedBytes === bytes) return;
+    notice.projectedBytes = bytes;
+  }
 }
 
 function truncateHierarchy(

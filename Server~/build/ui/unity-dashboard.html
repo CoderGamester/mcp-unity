@@ -37,10 +37,10 @@
     <div id="globalError" class="error"></div>
     <main class="grid">
       <section><h2>Scene hierarchy</h2><pre id="hierarchy">Waiting…</pre><div id="truncation" class="note"></div></section>
-      <section><h2>Console logs</h2><pre id="logs">Waiting…</pre></section>
-      <section><h2>Packages</h2><pre id="packages">Waiting…</pre></section>
-      <section><h2>Tests</h2><pre id="tests">Waiting…</pre></section>
-      <section><h2>GameObject inspector</h2><pre id="gameobject">Select a target URI such as unity://gameobject/%2FPlayer in your MCP client.</pre></section>
+      <section><h2>Console logs</h2><pre id="logs">Waiting…</pre><div id="logsProjection" class="note projection-note"></div></section>
+      <section><h2>Packages</h2><pre id="packages">Waiting…</pre><div id="packagesProjection" class="note projection-note"></div></section>
+      <section><h2>Tests</h2><pre id="tests">Waiting…</pre><div id="testsProjection" class="note projection-note"></div></section>
+      <section><h2>GameObject inspector</h2><pre id="gameobject">Select a target URI such as unity://gameobject/%2FPlayer in your MCP client.</pre><div id="gameobjectProjection" class="note projection-note"></div></section>
       <section><h2>Companion resources</h2><pre>unity://logs{?severity,limit}
 unity://scenes-hierarchy{?path,max_nodes}
 unity://gameobject/{target}
@@ -87,7 +87,22 @@ ui://unity-dashboard</pre></section>
         return JSON.parse(content.text);
       }
       function render(id, value) {
-        document.getElementById(id).textContent = JSON.stringify(value, null, 2);
+        try {
+          document.getElementById(id).textContent = JSON.stringify(value, null, 2);
+        } catch (error) {
+          document.getElementById(id).textContent =
+            'Unable to render resource: ' +
+            (error instanceof Error ? error.message : String(error));
+        }
+      }
+      function renderProjection(id, value) {
+        const projection = value && value.projection;
+        document.getElementById(id).textContent =
+          projection && projection.truncated
+            ? `Projection truncated at ${projection.projectedBytes}/${projection.payloadBudgetBytes} bytes.`
+            : projection
+              ? `Projection complete (${projection.projectedBytes} bytes).`
+              : '';
       }
       async function performRefresh() {
         const wait = Math.max(0, MIN_REFRESH_MS - (Date.now() - lastRefreshStarted));
@@ -106,6 +121,9 @@ ui://unity-dashboard</pre></section>
           render('hierarchy', hierarchy);
           render('packages', packages);
           render('tests', tests);
+          renderProjection('logsProjection', logs);
+          renderProjection('packagesProjection', packages);
+          renderProjection('testsProjection', tests);
           const hierarchyLimit = hierarchy.truncation;
           document.getElementById('truncation').textContent =
             hierarchyLimit && hierarchyLimit.truncated

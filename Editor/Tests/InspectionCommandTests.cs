@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using McpUnity.Extensions.Commands;
+using Newtonsoft.Json;
 using NUnit.Framework;
 using Unity.Pipeline;
 using Unity.Pipeline.Models;
@@ -75,6 +76,7 @@ namespace McpUnity.Extensions.Tests
             var rootNode = Property(result, "Root");
             Assert.That(Property<IList>(rootNode, "Children"), Is.Empty);
             Assert.That(Property<bool>(rootNode, "ChildrenTruncated"), Is.True);
+            Assert.That(Property<bool>(result, "PayloadTruncated"), Is.True);
         }
 
         [Test]
@@ -91,7 +93,40 @@ namespace McpUnity.Extensions.Tests
             Assert.That(Property<int>(result, "MaxNodes"), Is.EqualTo(1));
             Assert.That(Property<int>(result, "NodesReturned"), Is.EqualTo(1));
             Assert.That(Property<bool>(result, "NodeLimitReached"), Is.True);
+            Assert.That(Property<bool>(result, "PayloadTruncated"), Is.True);
             Assert.That(Property<bool>(Property(result, "Root"), "ChildrenTruncated"), Is.True);
+        }
+
+        [Test]
+        public void Inspect_BoundsDeepAndWideHierarchiesWithHonestMarkers()
+        {
+            var root = new GameObject("Root");
+            var parent = root.transform;
+            for (var depth = 0; depth < 100; depth++)
+            {
+                var child = new GameObject($"Deep-{depth}");
+                child.transform.SetParent(parent);
+                parent = child.transform;
+            }
+            for (var index = 0; index < 2000; index++)
+                new GameObject($"Wide-{index}").transform.SetParent(root.transform);
+
+            var result = InspectGameObjectCommand.Inspect(
+                Ref(root),
+                maxDepth: 999,
+                maxNodes: 9999,
+                includeComponents: false);
+            var serializedBytes = System.Text.Encoding.UTF8.GetByteCount(
+                JsonConvert.SerializeObject(result));
+
+            Assert.That(result.MaxDepth, Is.EqualTo(8));
+            Assert.That(result.MaxNodes, Is.EqualTo(1000));
+            Assert.That(result.NodesReturned, Is.LessThanOrEqualTo(1000));
+            Assert.That(result.PayloadTruncated, Is.True);
+            Assert.That(serializedBytes, Is.LessThanOrEqualTo(512 * 1024));
+            Assert.That(
+                Flatten(result.Root).Any(node => node.ChildrenTruncated),
+                Is.True);
         }
 
         [Test]
@@ -154,6 +189,7 @@ namespace McpUnity.Extensions.Tests
                 Ref(root),
                 includeProperties: true,
                 maxPropertiesPerComponent: 10);
+            Assert.That(result.PayloadTruncated, Is.True);
 
             var components = Property<IList>(result.Root, "Components");
             var component = components.Cast<object>()
@@ -212,6 +248,75 @@ namespace McpUnity.Extensions.Tests
                 "The omitted property and all later values must not be materialized.");
         }
 
+        [Test]
+        public void Inspect_CapsComponentsPerNodeAndAcrossTheWholeInspection()
+        {
+            var root = new GameObject("Root");
+            for (var index = 0; index < 80; index++)
+                root.AddComponent<InspectionFixtureComponent>();
+            for (var childIndex = 0; childIndex < 10; childIndex++)
+            {
+                var child = new GameObject($"Child-{childIndex}");
+                child.transform.SetParent(root.transform);
+                for (var componentIndex = 0; componentIndex < 40; componentIndex++)
+                    child.AddComponent<InspectionFixtureComponent>();
+            }
+
+            var result = InspectGameObjectCommand.Inspect(
+                Ref(root),
+                maxDepth: 2,
+                maxNodes: 100,
+                includeProperties: false,
+                maxPropertiesPerComponent: 100);
+
+            Assert.That(result.ComponentsReturned, Is.LessThanOrEqualTo(result.MaxTotalComponents));
+            Assert.That(result.ComponentLimitReached, Is.True);
+            Assert.That(result.Root.Components, Has.Count.LessThanOrEqualTo(result.MaxComponentsPerGameObject));
+            Assert.That(result.Root.ComponentsTruncated, Is.True);
+            Assert.That(
+                result.Root.Children.SelectMany(child => child.Components).Count() +
+                result.Root.Components.Count,
+                Is.EqualTo(result.ComponentsReturned));
+        }
+
+        [Test]
+        public void Inspect_StopsAtAggregatePayloadBudgetWithHonestMarkers()
+        {
+            var root = new GameObject(new string('R', 5000));
+            for (var childIndex = 0; childIndex < 200; childIndex++)
+            {
+                var child = new GameObject($"Child-{childIndex}-{new string('N', 5000)}");
+                child.transform.SetParent(root.transform);
+                for (var componentIndex = 0; componentIndex < 8; componentIndex++)
+                {
+                    var fixture = child.AddComponent<LargeInspectionFixtureComponent>();
+                    fixture.LargeString = new string('"', 200_000);
+                    fixture.LargeArray = Enumerable.Range(0, 1000).ToArray();
+                }
+            }
+
+            var result = InspectGameObjectCommand.Inspect(
+                Ref(root),
+                maxDepth: 8,
+                maxNodes: 1000,
+                includeProperties: true,
+                maxPropertiesPerComponent: 200);
+            var json = JsonConvert.SerializeObject(result);
+            var serializedBytes = System.Text.Encoding.UTF8.GetByteCount(json);
+
+            Assert.That(serializedBytes, Is.LessThanOrEqualTo(512 * 1024));
+            Assert.That(result.PayloadBudgetBytes, Is.EqualTo(512 * 1024));
+            Assert.That(result.PayloadBytes, Is.EqualTo(serializedBytes));
+            Assert.That(result.PayloadTruncated, Is.True);
+            Assert.That(result.ComponentsReturned, Is.LessThanOrEqualTo(result.MaxTotalComponents));
+            Assert.That(result.Root.Name.Length, Is.LessThanOrEqualTo(256));
+            Assert.That(
+                Flatten(result.Root).Any(node =>
+                    node.ComponentsTruncated ||
+                    node.Components.Any(component => component.PropertiesTruncated)),
+                Is.True);
+        }
+
         private static void AssertValueTruncation(
             object property,
             string reason,
@@ -227,6 +332,19 @@ namespace McpUnity.Extensions.Tests
 
         private static ObjectRef Ref(UnityEngine.Object obj) =>
             new ObjectRef { InstanceId = PipelineUtils.GetObjectId(obj) };
+
+        private static IEnumerable<GameObjectInspection> Flatten(GameObjectInspection root)
+        {
+            var pending = new Stack<GameObjectInspection>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                var current = pending.Pop();
+                yield return current;
+                for (var index = current.Children.Count - 1; index >= 0; index--)
+                    pending.Push(current.Children[index]);
+            }
+        }
 
         private static object Property(object instance, string name)
         {

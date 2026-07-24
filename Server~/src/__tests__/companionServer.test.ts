@@ -83,7 +83,13 @@ describe('outer MCP companion catalog', () => {
         severity: 'error',
         limit: 4,
       });
-      expect(JSON.parse(result.contents[0].text as string)).toEqual({ ok: true });
+      expect(JSON.parse(result.contents[0].text as string)).toMatchObject({
+        ok: true,
+        projection: {
+          truncated: false,
+          payloadBudgetBytes: 512 * 1024,
+        },
+      });
     } finally {
       await client.close();
       await server.close();
@@ -130,6 +136,9 @@ describe('outer MCP companion catalog', () => {
       expect(html).toContain('truncation');
       expect(html).toContain('totalNodesKnown');
       expect(html).toContain('totalNodesAtLeast');
+      expect(html).toContain('renderProjection');
+      expect(html).toContain('projection-note');
+      expect(html).toContain('Projection truncated');
       expect(LATEST_PROTOCOL_VERSION).toBe('2026-01-26');
       expect(html).toContain("const PROTOCOL_VERSION = '2026-01-26'");
       expect(html).toContain('event.source !== window.parent');

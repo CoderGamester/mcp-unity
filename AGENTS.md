@@ -53,7 +53,7 @@ README.md                 User setup and exhaustive 1.4 migration table
 CHANGELOG.md              Release notes
 ```
 
-`Server~` is private and bundled. Keep Node 20+, `@modelcontextprotocol/sdk@1.26.0`, `@modelcontextprotocol/ext-apps@1.0.1`, and `zod@3.25.76` exact until a coordinated upgrade is tested. It has no npm `bin`, publish configuration, registry manifest, Docker image, or Smithery surface.
+`Server~` is private and bundled as one self-contained ESM entrypoint. Keep Node 20+, `@modelcontextprotocol/sdk@1.26.0`, `@modelcontextprotocol/ext-apps@1.0.1`, and `zod@3.25.76` exact until a coordinated upgrade is tested. It has no npm `bin`, publish configuration, registry manifest, Docker image, or Smithery surface. `npm run build` must regenerate `build/index.js`, copy the dashboard, and update `THIRD_PARTY_NOTICES.md`; `npm run build:check` must then prove parity. Never require package users to install npm dependencies.
 
 ## Public catalogs
 
@@ -98,7 +98,7 @@ Do not add Node proxies for mutation commands.
 
 1. Start with a failing Jest test in `Server~/src/__tests__`.
 2. Map the URI to an official read-only Pipeline command or one of the five extensions in `Server~/src/resources/companionResources.ts`.
-3. Validate and bound all URI inputs and projected output.
+3. Validate and bound all URI inputs. Every Unity-backed resource must remain at or below 512 KiB and carry honest top-level projection/truncation metadata; bound strings, arrays, objects, keys, depth, values, and traversal work.
 4. Decode structured content and JSON text defensively.
 5. Permit at most one reconnect/retry for a transport-interrupted read.
 6. Never retry, mirror, or expose a mutation tool.
@@ -115,6 +115,7 @@ cd Server~
 npm ci
 npm test -- --runInBand --detectOpenHandles
 npm run build
+npm run build:check
 npm audit --omit=dev
 ```
 

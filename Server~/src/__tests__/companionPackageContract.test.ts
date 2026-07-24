@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const serverRoot = path.resolve(
@@ -44,6 +46,8 @@ describe('private companion package contract', () => {
       'src/unity/mcpUnity.ts',
       'src/unity/unityConnection.ts',
       'src/unity/commandQueue.ts',
+      'scripts/clean-build.mjs',
+      'scripts/copy-ui.mjs',
     ]) {
       expect(fs.existsSync(path.join(serverRoot, obsoletePath))).toBe(false);
     }
@@ -80,6 +84,67 @@ describe('private companion package contract', () => {
     ]) {
       expect(fs.existsSync(path.join(serverRoot, obsoleteBuildPath))).toBe(false);
     }
+  });
+
+  test('ships a self-contained Node 20 bundle with notices', () => {
+    const entrypoint = fs.readFileSync(
+      path.join(serverRoot, 'build', 'index.js'),
+      'utf8',
+    );
+    const bareImports = [
+      ...entrypoint.matchAll(
+        /^import(?:[\s\S]*?\sfrom\s+|\s*)['"]([^./][^'"]*)['"];?$/gm,
+      ),
+    ].map((match) => match[1]);
+
+    expect(bareImports.every((specifier) => specifier.startsWith('node:'))).toBe(
+      true,
+    );
+    expect(entrypoint).toContain('MCP Unity Companion could not start');
+    expect(
+      fs.readFileSync(path.join(serverRoot, 'THIRD_PARTY_NOTICES.md'), 'utf8'),
+    ).toEqual(expect.stringContaining('@modelcontextprotocol/sdk 1.26.0'));
+  });
+
+  test('starts from a clean copied package with no reachable node_modules', () => {
+    const isolatedRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'mcp-unity-companion-clean-'),
+    );
+    const packageRoot = path.join(isolatedRoot, 'package');
+    try {
+      fs.mkdirSync(packageRoot);
+      fs.cpSync(path.join(serverRoot, 'build'), path.join(packageRoot, 'build'), {
+        recursive: true,
+      });
+      for (const file of ['package.json', 'THIRD_PARTY_NOTICES.md']) {
+        fs.copyFileSync(path.join(serverRoot, file), path.join(packageRoot, file));
+      }
+      const result = spawnSync(
+        process.execPath,
+        [path.join(packageRoot, 'build', 'index.js')],
+        {
+          cwd: packageRoot,
+          encoding: 'utf8',
+          env: { PATH: process.env.PATH ?? '' },
+          timeout: 10_000,
+        },
+      );
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('--project-path');
+      expect(result.stderr).not.toContain('ERR_MODULE_NOT_FOUND');
+    } finally {
+      fs.rmSync(isolatedRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('tracked build is reproducible from source', () => {
+    expect(() =>
+      execFileSync(process.execPath, ['scripts/build-bundle.mjs', '--check'], {
+        cwd: serverRoot,
+        stdio: 'pipe',
+      }),
+    ).not.toThrow();
   });
 });
 

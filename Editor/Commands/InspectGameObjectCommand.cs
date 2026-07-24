@@ -1,5 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Text;
 using Unity.Pipeline.Commands;
 using Unity.Pipeline.Editor.Authoring;
 using Unity.Pipeline.Models;
@@ -10,6 +14,11 @@ namespace McpUnity.Extensions.Commands
 {
     public static class InspectGameObjectCommand
     {
+        internal const int MaxComponentsPerGameObject = 32;
+        internal const int MaxTotalComponents = 128;
+        internal const int PayloadBudgetBytes = 512 * 1024;
+        private const int ContentBudgetBytes = 384 * 1024;
+
         [CliCommand("inspect_gameobject", "Inspect a bounded GameObject hierarchy with optional component and serialized-property details.")]
         public static InspectGameObjectResult Inspect(
             [CliArg("target", "GameObject reference to inspect.", Required = true)] ObjectRef target,
@@ -28,15 +37,24 @@ namespace McpUnity.Extensions.Commands
                 Mathf.Clamp(maxPropertiesPerComponent, 1, 200));
 
             var root = BuildNode(gameObject, 0, context);
-            return new InspectGameObjectResult
+            var result = new InspectGameObjectResult
             {
                 Root = root,
                 MaxDepth = context.MaxDepth,
                 MaxNodes = context.MaxNodes,
                 MaxPropertiesPerComponent = context.MaxPropertiesPerComponent,
                 NodesReturned = context.NodesReturned,
-                NodeLimitReached = context.NodeLimitReached
+                NodeLimitReached = context.NodeLimitReached,
+                MaxComponentsPerGameObject = MaxComponentsPerGameObject,
+                MaxTotalComponents = MaxTotalComponents,
+                ComponentsReturned = context.ComponentsReturned,
+                ComponentLimitReached = context.ComponentLimitReached,
+                PayloadBudgetBytes = PayloadBudgetBytes,
+                PayloadTruncated = context.PayloadTruncated,
+                PayloadTruncationReason = context.PayloadTruncationReason
             };
+            StabilizePayloadBytes(result);
+            return result;
         }
 
         private static GameObjectInspection BuildNode(
@@ -47,6 +65,31 @@ namespace McpUnity.Extensions.Commands
             if (context.NodesReturned >= context.MaxNodes)
             {
                 context.NodeLimitReached = true;
+                context.MarkPayloadTruncated("nodeLimit");
+                return null;
+            }
+
+            var identity = BoundedIdentity(ObjectResolver.Describe(gameObject), context);
+            var boundedName = BoundedString(gameObject.name, 256, context);
+            var boundedPath = BoundedString(identity?.HierarchyPath, 1024, context);
+            var boundedScenePath = BoundedString(
+                gameObject.scene.IsValid() ? gameObject.scene.path : null,
+                1024,
+                context);
+            var boundedLayerName = BoundedString(
+                LayerMask.LayerToName(gameObject.layer),
+                128,
+                context);
+            var boundedTag = BoundedString(gameObject.tag, 128, context);
+            if (!context.TryConsume(
+                    2048 +
+                    IdentityBudget(identity) +
+                    WorstCaseJsonStringBytes(boundedName) +
+                    WorstCaseJsonStringBytes(boundedPath) +
+                    WorstCaseJsonStringBytes(boundedScenePath) +
+                    WorstCaseJsonStringBytes(boundedLayerName) +
+                    WorstCaseJsonStringBytes(boundedTag)))
+            {
                 return null;
             }
 
@@ -54,15 +97,15 @@ namespace McpUnity.Extensions.Commands
             var transform = gameObject.transform;
             var node = new GameObjectInspection
             {
-                Identity = ObjectResolver.Describe(gameObject),
-                Name = gameObject.name,
-                Path = ObjectResolver.Describe(gameObject)?.HierarchyPath,
-                ScenePath = gameObject.scene.IsValid() ? gameObject.scene.path : null,
+                Identity = identity,
+                Name = boundedName,
+                Path = boundedPath,
+                ScenePath = boundedScenePath,
                 ActiveSelf = gameObject.activeSelf,
                 ActiveInHierarchy = gameObject.activeInHierarchy,
                 Layer = gameObject.layer,
-                LayerName = LayerMask.LayerToName(gameObject.layer),
-                Tag = gameObject.tag,
+                LayerName = boundedLayerName,
+                Tag = boundedTag,
                 IsStatic = gameObject.isStatic,
                 Transform = new TransformInspection
                 {
@@ -81,6 +124,8 @@ namespace McpUnity.Extensions.Commands
             if (depth >= context.MaxDepth)
             {
                 node.ChildrenTruncated = transform.childCount > 0;
+                if (node.ChildrenTruncated)
+                    context.MarkPayloadTruncated("depthLimit");
                 return node;
             }
 
@@ -89,6 +134,7 @@ namespace McpUnity.Extensions.Commands
                 if (context.NodesReturned >= context.MaxNodes)
                 {
                     context.NodeLimitReached = true;
+                    context.MarkPayloadTruncated("nodeLimit");
                     node.ChildrenTruncated = true;
                     break;
                 }
@@ -116,37 +162,75 @@ namespace McpUnity.Extensions.Commands
             if (!context.IncludeComponents)
                 return;
 
-            foreach (var component in components)
+            var perObjectLimit = Mathf.Min(components.Length, MaxComponentsPerGameObject);
+            for (var index = 0; index < perObjectLimit; index++)
             {
+                if (context.ComponentsReturned >= MaxTotalComponents)
+                {
+                    context.ComponentLimitReached = true;
+                    node.ComponentsTruncated = true;
+                    break;
+                }
+
+                var component = components[index];
                 if (component == null)
                 {
+                    if (!context.TryConsume(256))
+                    {
+                        node.ComponentsTruncated = true;
+                        break;
+                    }
                     node.Components.Add(new ComponentInspection
                     {
                         Type = "<missing>",
                         Missing = true
                     });
+                    context.ComponentsReturned++;
                     continue;
                 }
 
+                var typeName = BoundedString(component.GetType().Name, 256, context);
+                var identity = BoundedIdentity(ObjectResolver.Describe(component), context);
+                if (!context.TryConsume(
+                        1024 +
+                        WorstCaseJsonStringBytes(typeName) +
+                        IdentityBudget(identity)))
+                {
+                    node.ComponentsTruncated = true;
+                    break;
+                }
                 var summary = new ComponentInspection
                 {
-                    Identity = ObjectResolver.Describe(component),
-                    Type = component.GetType().Name,
+                    Identity = identity,
+                    Type = typeName,
                     Enabled = GetEnabled(component),
                     PropertiesIncluded = context.IncludeProperties
                 };
+                context.ComponentsReturned++;
 
                 if (context.IncludeProperties)
-                    ReadProperties(component, summary, context.MaxPropertiesPerComponent);
+                    ReadProperties(component, summary, context);
 
                 node.Components.Add(summary);
+            }
+
+            if (node.Components.Count < components.Length)
+            {
+                node.ComponentsTruncated = true;
+                node.ComponentsOmitted = components.Length - node.Components.Count;
+                context.MarkPayloadTruncated(
+                    context.ComponentLimitReached
+                        ? "totalComponentLimit"
+                        : components.Length > MaxComponentsPerGameObject
+                            ? "perGameObjectComponentLimit"
+                            : "payloadBudget");
             }
         }
 
         private static void ReadProperties(
             Component component,
             ComponentInspection summary,
-            int maxProperties)
+            InspectionContext context)
         {
             try
             {
@@ -163,30 +247,180 @@ namespace McpUnity.Extensions.Commands
                         continue;
 
                     summary.SerializedPropertyCount++;
-                    if (summary.Properties.Count >= maxProperties)
+                    if (summary.Properties.Count >= context.MaxPropertiesPerComponent)
                     {
                         summary.PropertiesTruncated = true;
+                        summary.PropertiesOmittedAtLeast++;
+                        summary.PropertiesTruncationReason = "perComponentPropertyLimit";
+                        context.MarkPayloadTruncated("perComponentPropertyLimit");
                         break;
                     }
 
                     if (!SerializedPropertyValueReader.TryRead(iterator, out var readResult))
                         continue;
 
-                    summary.Properties.Add(new SerializedPropertyInspection
+                    var property = new SerializedPropertyInspection
                     {
-                        Name = iterator.displayName,
-                        Path = iterator.propertyPath,
-                        Type = iterator.propertyType.ToString(),
+                        Name = BoundedString(iterator.displayName, 256, context),
+                        Path = BoundedString(iterator.propertyPath, 1024, context),
+                        Type = BoundedString(iterator.propertyType.ToString(), 128, context),
                         Value = readResult.Value,
                         ValueTruncated = readResult.Truncations.Count > 0,
                         ValueTruncations = readResult.Truncations
-                    });
+                    };
+                    if (property.ValueTruncated)
+                        context.MarkPayloadTruncated("serializedValueBounds");
+                    if (!context.TryConsume(PropertyBudget(property)))
+                    {
+                        summary.PropertiesTruncated = true;
+                        summary.PropertiesOmittedAtLeast++;
+                        summary.PropertiesTruncationReason = "payloadBudget";
+                        break;
+                    }
+
+                    summary.Properties.Add(property);
+                    summary.PropertiesReturned = summary.Properties.Count;
                 }
             }
             catch (Exception exception)
             {
-                summary.PropertiesError = exception.Message;
+                var boundedError = BoundedString(exception.Message, 1024, context);
+                summary.PropertiesError = context.TryConsume(
+                    256 + WorstCaseJsonStringBytes(boundedError))
+                    ? boundedError
+                    : "Inspection failed; error omitted at payload budget.";
             }
+        }
+
+        internal static AuthoringResult BoundedIdentity(
+            AuthoringResult source,
+            InspectionContext context = null)
+        {
+            if (source == null)
+                return null;
+            return new AuthoringResult
+            {
+                GlobalId = BoundedString(source.GlobalId, 1024, context),
+                AssetPath = BoundedString(source.AssetPath, 1024, context),
+                Guid = BoundedString(source.Guid, 128, context),
+                FileId = source.FileId,
+                InstanceId = source.InstanceId,
+                HierarchyPath = BoundedString(source.HierarchyPath, 1024, context),
+                Type = BoundedString(source.Type, 128, context)
+            };
+        }
+
+        private static string BoundedString(
+            string value,
+            int maxLength,
+            InspectionContext context)
+        {
+            if (value == null || value.Length <= maxLength)
+                return value;
+            context?.MarkPayloadTruncated("stringLength");
+            return value.Substring(0, maxLength);
+        }
+
+        private static int IdentityBudget(AuthoringResult identity)
+        {
+            if (identity == null)
+                return 16;
+            return 256 +
+                   WorstCaseJsonStringBytes(identity.GlobalId) +
+                   WorstCaseJsonStringBytes(identity.AssetPath) +
+                   WorstCaseJsonStringBytes(identity.Guid) +
+                   WorstCaseJsonStringBytes(identity.HierarchyPath) +
+                   WorstCaseJsonStringBytes(identity.Type);
+        }
+
+        private static int WorstCaseJsonStringBytes(string value) =>
+            value == null ? 4 : 2 + value.Length * 6;
+
+        private static int PropertyBudget(SerializedPropertyInspection property) =>
+            1024 +
+            WorstCaseJsonStringBytes(property.Name) +
+            WorstCaseJsonStringBytes(property.Path) +
+            WorstCaseJsonStringBytes(property.Type) +
+            EstimateValueBytes(property.Value) +
+            property.ValueTruncations.Count * 512;
+
+        private static int EstimateValueBytes(object value)
+        {
+            var total = 0;
+            var pending = new Stack<object>();
+            pending.Push(value);
+            while (pending.Count > 0)
+            {
+                var current = pending.Pop();
+                if (current == null)
+                {
+                    total += 4;
+                    continue;
+                }
+                if (current is string text)
+                {
+                    total += WorstCaseJsonStringBytes(text);
+                    continue;
+                }
+                if (current is AuthoringResult identity)
+                {
+                    total += IdentityBudget(identity);
+                    continue;
+                }
+                if (current is IDictionary dictionary)
+                {
+                    total += 2 + dictionary.Count * 8;
+                    foreach (DictionaryEntry entry in dictionary)
+                    {
+                        total += WorstCaseJsonStringBytes(entry.Key?.ToString());
+                        pending.Push(entry.Value);
+                    }
+                    continue;
+                }
+                if (current is IEnumerable enumerable)
+                {
+                    total += 2;
+                    foreach (var item in enumerable)
+                    {
+                        total += 1;
+                        pending.Push(item);
+                    }
+                    continue;
+                }
+                total += 64;
+            }
+            return total;
+        }
+
+        private static void StabilizePayloadBytes(InspectGameObjectResult result)
+        {
+            for (var attempt = 0; attempt < 6; attempt++)
+            {
+                var serialized = SerializeWithPipelineJson(result);
+                if (serialized == null)
+                {
+                    result.PayloadBytes = 0;
+                    return;
+                }
+                var bytes = Encoding.UTF8.GetByteCount(serialized);
+                if (result.PayloadBytes == bytes)
+                    return;
+                result.PayloadBytes = bytes;
+            }
+        }
+
+        private static string SerializeWithPipelineJson(object value)
+        {
+            var jsonType = AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType("Newtonsoft.Json.JsonConvert", false))
+                .FirstOrDefault(type => type != null);
+            var method = jsonType?.GetMethod(
+                "SerializeObject",
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                new[] { typeof(object) },
+                null);
+            return method?.Invoke(null, new[] { value }) as string;
         }
 
         private static bool? GetEnabled(Component component)
@@ -203,7 +437,7 @@ namespace McpUnity.Extensions.Commands
         private static Vector3Inspection Vector(Vector3 value) =>
             new Vector3Inspection { X = value.x, Y = value.y, Z = value.z };
 
-        private sealed class InspectionContext
+        internal sealed class InspectionContext
         {
             public InspectionContext(
                 int maxDepth,
@@ -226,6 +460,29 @@ namespace McpUnity.Extensions.Commands
             public int MaxPropertiesPerComponent { get; }
             public int NodesReturned { get; set; }
             public bool NodeLimitReached { get; set; }
+            public int ComponentsReturned { get; set; }
+            public bool ComponentLimitReached { get; set; }
+            public bool PayloadTruncated { get; private set; }
+            public string PayloadTruncationReason { get; private set; }
+            private int EstimatedBytes { get; set; }
+
+            public bool TryConsume(int bytes)
+            {
+                if (EstimatedBytes + bytes <= ContentBudgetBytes)
+                {
+                    EstimatedBytes += bytes;
+                    return true;
+                }
+                MarkPayloadTruncated("payloadBudget");
+                return false;
+            }
+
+            public void MarkPayloadTruncated(string reason)
+            {
+                PayloadTruncated = true;
+                if (string.IsNullOrEmpty(PayloadTruncationReason))
+                    PayloadTruncationReason = reason;
+            }
         }
     }
 }

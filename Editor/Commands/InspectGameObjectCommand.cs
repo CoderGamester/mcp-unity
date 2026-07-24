@@ -26,6 +26,7 @@ namespace McpUnity.Extensions.Commands
             2 + 128 * 6;
 
         internal static Action<string> PropertyReaderAllocationObserver { get; set; }
+        internal static Func<object, string> SerializationOverride { get; set; }
 
         [CliCommand("inspect_gameobject", "Inspect a bounded GameObject hierarchy with optional component and serialized-property details.")]
         public static InspectGameObjectResult Inspect(
@@ -432,33 +433,80 @@ namespace McpUnity.Extensions.Commands
 
         private static void StabilizePayloadBytes(InspectGameObjectResult result)
         {
+            MeasureStablePayloadBytes(result);
+            if (result.PayloadBytes <= PayloadBudgetBytes)
+                return;
+
+            // This guard is deliberately independent of the reservation estimator.
+            // Normal bounded inspections never reach it; if an estimator misses a
+            // value shape, return an honest minimal result instead of an oversized one.
+            result.Root = null;
+            result.NodesReturned = 0;
+            result.ComponentsReturned = 0;
+            result.PayloadTruncated = true;
+            result.PayloadTruncationReason = "serializedPayloadBudget";
+            MeasureStablePayloadBytes(result);
+            if (result.PayloadBytes > PayloadBudgetBytes)
+                throw new InvalidOperationException(
+                    "The bounded inspection result exceeded its serialized payload budget.");
+        }
+
+        private static void MeasureStablePayloadBytes(InspectGameObjectResult result)
+        {
             for (var attempt = 0; attempt < 6; attempt++)
             {
                 var serialized = SerializeWithPipelineJson(result);
-                if (serialized == null)
-                {
-                    result.PayloadBytes = 0;
-                    return;
-                }
                 var bytes = Encoding.UTF8.GetByteCount(serialized);
                 if (result.PayloadBytes == bytes)
                     return;
                 result.PayloadBytes = bytes;
             }
+
+            throw new InvalidOperationException(
+                "The inspection payload size did not stabilize.");
         }
 
         private static string SerializeWithPipelineJson(object value)
         {
+            if (SerializationOverride != null)
+            {
+                return SerializationOverride(value) ??
+                       throw new InvalidOperationException(
+                           "The inspection payload serializer returned no result.");
+            }
+
             var jsonType = AppDomain.CurrentDomain.GetAssemblies()
                 .Select(assembly => assembly.GetType("Newtonsoft.Json.JsonConvert", false))
                 .FirstOrDefault(type => type != null);
+            if (jsonType == null)
+            {
+                throw new InvalidOperationException(
+                    "The Pipeline JSON serializer is unavailable.");
+            }
             var method = jsonType?.GetMethod(
                 "SerializeObject",
                 BindingFlags.Public | BindingFlags.Static,
                 null,
                 new[] { typeof(object) },
                 null);
-            return method?.Invoke(null, new[] { value }) as string;
+            if (method == null)
+            {
+                throw new InvalidOperationException(
+                    "The Pipeline JSON serializer entry point is unavailable.");
+            }
+
+            try
+            {
+                return method.Invoke(null, new[] { value }) as string ??
+                       throw new InvalidOperationException(
+                           "The Pipeline JSON serializer returned no result.");
+            }
+            catch (TargetInvocationException exception)
+            {
+                throw new InvalidOperationException(
+                    "The Pipeline JSON serializer failed.",
+                    exception.InnerException ?? exception);
+            }
         }
 
         private static bool? GetEnabled(Component component)

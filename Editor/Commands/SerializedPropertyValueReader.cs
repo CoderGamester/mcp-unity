@@ -208,10 +208,7 @@ namespace McpUnity.Extensions.Commands
                     }
                     return true;
                 case SerializedPropertyType.Enum:
-                    value = property.enumValueIndex >= 0 &&
-                            property.enumValueIndex < property.enumNames.Length
-                        ? property.enumNames[property.enumValueIndex]
-                        : property.intValue.ToString();
+                    value = property.intValue;
                     return true;
                 case SerializedPropertyType.Vector2:
                     value = Values(property.vector2Value.x, property.vector2Value.y);
@@ -513,6 +510,7 @@ namespace McpUnity.Extensions.Commands
                 case SerializedPropertyType.ObjectReference:
                     return 8 * 1024;
                 case SerializedPropertyType.Enum:
+                    return 64;
                 case SerializedPropertyType.Hash128:
                     return 512;
                 case SerializedPropertyType.Generic:

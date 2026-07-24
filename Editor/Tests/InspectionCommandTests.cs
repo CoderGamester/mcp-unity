@@ -209,6 +209,28 @@ namespace McpUnity.Extensions.Tests
         }
 
         [Test]
+        public void Inspect_SerializesEnumsWithoutMaterializingNameCollections()
+        {
+            var root = new GameObject("Root");
+            root.AddComponent<OversizedEnumInspectionFixtureComponent>();
+
+            var result = InspectGameObjectCommand.Inspect(
+                Ref(root),
+                includeProperties: true,
+                maxPropertiesPerComponent: 10);
+            var component = result.Root.Components.Single(
+                item => item.Type == nameof(OversizedEnumInspectionFixtureComponent));
+            var property = component.Properties.Single(
+                item => item.Path == nameof(OversizedEnumInspectionFixtureComponent.Value));
+
+            Assert.That(property.Value, Is.EqualTo(0));
+            Assert.That(property.ValueTruncated, Is.False);
+            Assert.That(
+                JsonConvert.SerializeObject(result),
+                Does.Not.Contain(OversizedEnumInspectionFixtureComponent.SelectedName));
+        }
+
+        [Test]
         public void Inspect_StopsConvertingValuesAfterFirstSupportedPropertyBeyondCap()
         {
             var root = new GameObject("Root");
@@ -315,6 +337,62 @@ namespace McpUnity.Extensions.Tests
                     node.ComponentsTruncated ||
                     node.Components.Any(component => component.PropertiesTruncated)),
                 Is.True);
+        }
+
+        [Test]
+        public void Inspect_FinalSerializedSizeGuardCannotReportAnOversizedPayload()
+        {
+            var result = new InspectGameObjectResult
+            {
+                Root = new GameObjectInspection
+                {
+                    Name = new string('x', 600_000)
+                },
+                NodesReturned = 1,
+                PayloadBudgetBytes = 512 * 1024
+            };
+            var stabilize = typeof(InspectGameObjectCommand).GetMethod(
+                "StabilizePayloadBytes",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.That(stabilize, Is.Not.Null);
+            stabilize.Invoke(null, new object[] { result });
+
+            var serializedBytes = System.Text.Encoding.UTF8.GetByteCount(
+                JsonConvert.SerializeObject(result));
+            Assert.That(serializedBytes, Is.LessThanOrEqualTo(512 * 1024));
+            Assert.That(result.PayloadBytes, Is.EqualTo(serializedBytes));
+            Assert.That(result.PayloadTruncated, Is.True);
+            Assert.That(result.PayloadTruncationReason, Is.EqualTo("serializedPayloadBudget"));
+            Assert.That(result.Root, Is.Null);
+            Assert.That(result.NodesReturned, Is.Zero);
+            Assert.That(result.ComponentsReturned, Is.Zero);
+        }
+
+        [Test]
+        public void Inspect_FailsClosedWhenPayloadSerializerIsUnavailable()
+        {
+            var serializerOverride = typeof(InspectGameObjectCommand).GetProperty(
+                "SerializationOverride",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.That(
+                serializerOverride,
+                Is.Not.Null,
+                "Expected a serializer-failure test seam.");
+            if (serializerOverride == null)
+                return;
+
+            serializerOverride.SetValue(null, (Func<object, string>)(_ => null));
+            try
+            {
+                var root = new GameObject("Root");
+                Assert.Throws<InvalidOperationException>(() =>
+                    InspectGameObjectCommand.Inspect(Ref(root)));
+            }
+            finally
+            {
+                serializerOverride.SetValue(null, null);
+            }
         }
 
         [Test]
@@ -543,6 +621,20 @@ namespace McpUnity.Extensions.Tests
     public sealed class BroadInspectionFixtureComponent : MonoBehaviour
     {
         public BroadInspectionGroup[] Groups;
+    }
+
+    public sealed class OversizedEnumInspectionFixtureComponent : MonoBehaviour
+    {
+        public const string SelectedName =
+            nameof(OversizedEnum.ThisEnumMemberNameIsIntentionallyLongToExerciseBoundedSerializedEnumOutput_ThisEnumMemberNameIsIntentionallyLongToExerciseBoundedSerializedEnumOutput_ThisEnumMemberNameIsIntentionallyLongToExerciseBoundedSerializedEnumOutput);
+
+        public OversizedEnum Value =
+            OversizedEnum.ThisEnumMemberNameIsIntentionallyLongToExerciseBoundedSerializedEnumOutput_ThisEnumMemberNameIsIntentionallyLongToExerciseBoundedSerializedEnumOutput_ThisEnumMemberNameIsIntentionallyLongToExerciseBoundedSerializedEnumOutput;
+    }
+
+    public enum OversizedEnum
+    {
+        ThisEnumMemberNameIsIntentionallyLongToExerciseBoundedSerializedEnumOutput_ThisEnumMemberNameIsIntentionallyLongToExerciseBoundedSerializedEnumOutput_ThisEnumMemberNameIsIntentionallyLongToExerciseBoundedSerializedEnumOutput
     }
 
     [Serializable]

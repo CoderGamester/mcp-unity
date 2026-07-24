@@ -1,10 +1,16 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type {
+  Transport,
+  TransportSendOptions,
+} from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
   CallToolResultSchema,
   ErrorCode,
   McpError,
   type CallToolResult,
+  type JSONRPCMessage,
+  type MessageExtraInfo,
 } from '@modelcontextprotocol/sdk/types.js';
 
 export interface OfficialUnitySession {
@@ -235,9 +241,7 @@ function isTransportInterruption(error: unknown): boolean {
     /Unity CLI process exited/i.test(message);
 }
 
-interface UnitySdkTransport {
-  close(): Promise<void>;
-}
+type UnitySdkTransport = Transport;
 
 interface UnitySdkClient {
   connect(
@@ -263,20 +267,110 @@ export interface OfficialUnitySessionDependencies {
 }
 
 const INITIALIZE_TIMEOUT_MS = 10_000;
+// StdioClientTransport returns immediately after its final owned-child signal.
+// A close event should follow in the next event-loop turns; allow a bounded
+// scheduling margin so shutdown cannot claim success before process closure.
+const CHILD_CLOSE_OBSERVATION_TIMEOUT_MS = 500;
 // StdioClientTransport uses two successive 2-second graceful/SIGTERM windows.
 // Let both finish so its unref'ed timers expire before forced cleanup begins.
 const SDK_CLOSE_GRACE_MS = 4_250;
 // A direct StdioClientTransport.close() fallback needs the same complete
-// graceful/SIGTERM sequence; the transport retains its owned ChildProcess handle.
-const TRANSPORT_CLOSE_TIMEOUT_MS = 4_250;
+// graceful/SIGTERM sequence plus the wrapper's close-event observation margin.
+// The transport retains its owned ChildProcess handle throughout that sequence.
+const TRANSPORT_CLOSE_TIMEOUT_MS = 4_750;
+
+export class OwnedStdioClientTransport implements Transport {
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+  onmessage?: <T extends JSONRPCMessage>(
+    message: T,
+    extra?: MessageExtraInfo,
+  ) => void;
+
+  private readonly childClosed: Promise<void>;
+  private resolveChildClosed!: () => void;
+  private closePromise?: Promise<void>;
+  private startSucceeded = false;
+  private childCloseObserved = false;
+  private closeForwarded = false;
+
+  constructor(
+    private readonly underlying: Transport,
+    private readonly closeObservationTimeoutMs =
+      CHILD_CLOSE_OBSERVATION_TIMEOUT_MS,
+  ) {
+    this.childClosed = new Promise<void>((resolve) => {
+      this.resolveChildClosed = resolve;
+    });
+    this.underlying.onclose = () => {
+      if (!this.childCloseObserved) {
+        this.childCloseObserved = true;
+        this.resolveChildClosed();
+      }
+      if (!this.closeForwarded) {
+        this.closeForwarded = true;
+        this.onclose?.();
+      }
+    };
+    this.underlying.onerror = (error) => this.onerror?.(error);
+    this.underlying.onmessage = (message, extra) =>
+      this.onmessage?.(message, extra);
+  }
+
+  get sessionId(): string | undefined {
+    return this.underlying.sessionId;
+  }
+
+  set sessionId(value: string | undefined) {
+    this.underlying.sessionId = value;
+  }
+
+  async start(): Promise<void> {
+    await this.underlying.start();
+    this.startSucceeded = true;
+  }
+
+  send(
+    message: JSONRPCMessage,
+    options?: TransportSendOptions,
+  ): Promise<void> {
+    return this.underlying.send(message, options);
+  }
+
+  setProtocolVersion(version: string): void {
+    this.underlying.setProtocolVersion?.(version);
+  }
+
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.closePromise = this.closeOwnedChild();
+    return this.closePromise;
+  }
+
+  private async closeOwnedChild(): Promise<void> {
+    await this.underlying.close();
+    if (!this.startSucceeded || this.childCloseObserved) return;
+
+    const observation = await settleWithin(
+      this.childClosed,
+      this.closeObservationTimeoutMs,
+    );
+    if (observation.status === 'fulfilled') return;
+    throw new Error(
+      `Unity CLI child did not report process closure within ${this.closeObservationTimeoutMs}ms after stdio transport teardown.`,
+    );
+  }
+}
 
 const DEFAULT_SESSION_DEPENDENCIES: OfficialUnitySessionDependencies = {
   createTransport: (options) =>
-    new StdioClientTransport({
-      command: options.cliPath,
-      args: ['mcp', '--project-path', options.projectPath],
-      stderr: 'inherit',
-    }),
+    new OwnedStdioClientTransport(
+      new StdioClientTransport({
+        command: options.cliPath,
+        args: ['mcp', '--project-path', options.projectPath],
+        stderr: 'inherit',
+      }),
+    ),
   createClient: () => {
     const client = new Client(
       { name: 'mcp-unity-companion', version: '2.0.0' },
@@ -284,7 +378,7 @@ const DEFAULT_SESSION_DEPENDENCIES: OfficialUnitySessionDependencies = {
     );
     return {
       connect: (transport, options) =>
-        client.connect(transport as StdioClientTransport, options),
+        client.connect(transport, options),
       callTool: (request, schema) => client.callTool(request, schema),
       close: () => client.close(),
     };

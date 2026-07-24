@@ -1,4 +1,5 @@
-import { CallToolResultSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { Transport, TransportSendOptions } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { CallToolResultSchema, type CallToolResult, type JSONRPCMessage, type MessageExtraInfo } from '@modelcontextprotocol/sdk/types.js';
 export interface OfficialUnitySession {
     callTool(name: string, args: Record<string, unknown>): Promise<CallToolResult>;
 }
@@ -39,9 +40,7 @@ export declare class OfficialUnityMcpClient {
     private raceWithClose;
     private assertOpen;
 }
-interface UnitySdkTransport {
-    close(): Promise<void>;
-}
+type UnitySdkTransport = Transport;
 interface UnitySdkClient {
     connect(transport: UnitySdkTransport, options: {
         signal: AbortSignal;
@@ -59,6 +58,27 @@ export interface OfficialUnitySessionDependencies {
     createClient(): UnitySdkClient;
     sdkCloseGraceMs?: number;
     transportCloseTimeoutMs?: number;
+}
+export declare class OwnedStdioClientTransport implements Transport {
+    private readonly underlying;
+    private readonly closeObservationTimeoutMs;
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+    onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
+    private readonly childClosed;
+    private resolveChildClosed;
+    private closePromise?;
+    private startSucceeded;
+    private childCloseObserved;
+    private closeForwarded;
+    constructor(underlying: Transport, closeObservationTimeoutMs?: number);
+    get sessionId(): string | undefined;
+    set sessionId(value: string | undefined);
+    start(): Promise<void>;
+    send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void>;
+    setProtocolVersion(version: string): void;
+    close(): Promise<void>;
+    private closeOwnedChild;
 }
 export declare function createOfficialUnitySessionStart(options: OfficialUnitySessionOptions, dependencies?: OfficialUnitySessionDependencies): OfficialUnitySessionStart;
 export {};

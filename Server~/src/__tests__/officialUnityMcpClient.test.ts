@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { jest } from '@jest/globals';
 import {
   createOfficialUnitySessionStart,
@@ -47,6 +48,14 @@ function sessionStart(
   close: jest.Mock = jest.fn(async () => undefined),
 ): OfficialUnitySessionStart & { close: jest.Mock } {
   return { ready: Promise.resolve(ready), close };
+}
+
+function sdkTransport(close: () => Promise<void>): Transport {
+  return {
+    start: async () => undefined,
+    send: async () => undefined,
+    close,
+  };
 }
 
 describe('OfficialUnityMcpClient', () => {
@@ -404,6 +413,8 @@ describe('official Unity SDK session ownership', () => {
     };
     const transport = {
       pid: null,
+      start: async () => undefined,
+      send: async () => undefined,
       close: jest.fn(async () => undefined),
     };
     const start = createOfficialUnitySessionStart(
@@ -450,6 +461,8 @@ describe('official Unity SDK session ownership', () => {
       get pid(): never {
         throw new Error('teardown must not read a raw PID');
       },
+      start: async () => undefined,
+      send: async () => undefined,
       close: jest.fn(() => transportClose.promise),
     };
     const start = createOfficialUnitySessionStart(
@@ -489,11 +502,10 @@ describe('official Unity SDK session ownership', () => {
             throw new Error('SDK close failed');
           }),
         }),
-        createTransport: () => ({
-          close: jest.fn(async () => {
+        createTransport: () =>
+          sdkTransport(jest.fn(async () => {
             throw new Error('owned child cleanup failed');
-          }),
-        }),
+          })),
         sdkCloseGraceMs: 10,
         transportCloseTimeoutMs: 10,
       },
@@ -514,9 +526,8 @@ describe('official Unity SDK session ownership', () => {
           callTool: jest.fn(),
           close: jest.fn(() => new Promise<void>(() => undefined)),
         }),
-        createTransport: () => ({
-          close: jest.fn(() => new Promise<void>(() => undefined)),
-        }),
+        createTransport: () =>
+          sdkTransport(jest.fn(() => new Promise<void>(() => undefined))),
         sdkCloseGraceMs: 5,
         transportCloseTimeoutMs: 10,
       },
@@ -561,7 +572,7 @@ describe('official Unity SDK session ownership', () => {
         { cliPath: '/unused/unity', projectPath: '/projects/game' },
         {
           createClient: () => client,
-          createTransport: () => ({ close: transportClose }),
+          createTransport: () => sdkTransport(transportClose),
           sdkCloseGraceMs: 10,
           transportCloseTimeoutMs: 1000,
         },

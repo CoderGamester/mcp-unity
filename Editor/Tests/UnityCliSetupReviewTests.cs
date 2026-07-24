@@ -58,6 +58,27 @@ namespace McpUnity.Extensions.Tests
         }
 
         [Test]
+        public void CliVersionClassifier_ValidatesBuildMetadataWithoutChangingPrecedence()
+        {
+            var huge = new string('9', 128);
+
+            var release = UnityCliVersionClassifier.Classify("unity 1.0.0+build.7", true, false);
+            var prerelease = UnityCliVersionClassifier.Classify("unity 1.0.0-beta.2+build.7", true, false);
+
+            Assert.That(release.Status, Is.EqualTo(UnityCliCompatibility.Compatible));
+            Assert.That(release.Version, Is.EqualTo("1.0.0+build.7"));
+            Assert.That(prerelease.Status, Is.EqualTo(UnityCliCompatibility.Compatible));
+            Assert.That(UnityCliVersionClassifier.Classify("unity " + huge + ".0.0+build.7", true, false).Status,
+                Is.EqualTo(UnityCliCompatibility.UntestedNewer));
+            Assert.That(UnityCliVersionClassifier.Classify("unity 1.0.0+", true, false).Status,
+                Is.EqualTo(UnityCliCompatibility.MissingOrFailed));
+            Assert.That(UnityCliVersionClassifier.Classify("unity 1.0.0+build..7", true, false).Status,
+                Is.EqualTo(UnityCliCompatibility.MissingOrFailed));
+            Assert.That(UnityCliVersionClassifier.Classify("unity 1.0.0+build!", true, false).Status,
+                Is.EqualTo(UnityCliCompatibility.MissingOrFailed));
+        }
+
+        [Test]
         public void CliCheckService_ContainsMalformedAndLargeVersionOutput()
         {
             var huge = new string('9', 128);
@@ -74,11 +95,13 @@ namespace McpUnity.Extensions.Tests
         [Test]
         public async Task ProcessRunner_TimeoutKillsItsOwnedProcessAndReturnsDespiteAChildHoldingPipes()
         {
+            RequirePosixHelper();
             var helperDirectory = CreateHelperDirectory();
             var parentPidPath = Path.Combine(helperDirectory, "parent.pid");
             var childPidPath = Path.Combine(helperDirectory, "child.pid");
             var runner = new SystemUnityCliProcessRunner();
-            var command = "echo $$ > '" + parentPidPath + "'; sleep 30 & echo $! > '" + childPidPath + "'; wait";
+            var command = "echo $$ > '" + parentPidPath +
+                "'; exec 3>&1 4>&2; (while :; do sleep 1; done) >&3 2>&4 & echo $! > '" + childPidPath + "'; wait";
 
             try
             {
@@ -108,6 +131,7 @@ namespace McpUnity.Extensions.Tests
         [Test]
         public async Task ProcessRunner_ReportsExternalCancellationSeparatelyFromTimeout()
         {
+            RequirePosixHelper();
             var helperDirectory = CreateHelperDirectory();
             var parentPidPath = Path.Combine(helperDirectory, "parent.pid");
             var runner = new SystemUnityCliProcessRunner();
@@ -137,6 +161,53 @@ namespace McpUnity.Extensions.Tests
                 KillIfRunning(ReadPid(parentPidPath));
                 Directory.Delete(helperDirectory, true);
             }
+        }
+
+        [Test]
+        public async Task ProcessRunner_DeadlineBoundsDrainWhenTheParentExitsButChildKeepsPipesOpen()
+        {
+            RequirePosixHelper();
+            var helperDirectory = CreateHelperDirectory();
+            var childPidPath = Path.Combine(helperDirectory, "child.pid");
+            var runner = new SystemUnityCliProcessRunner();
+            var command = "exec 3>&1 4>&2; (while :; do sleep 1; done) >&3 2>&4 & echo $! > '" +
+                childPidPath + "'; exit 0";
+
+            try
+            {
+                var stopwatch = Stopwatch.StartNew();
+                var task = runner.RunAsync(
+                    "/bin/sh",
+                    "-c \"" + command + "\"",
+                    TimeSpan.FromMilliseconds(100),
+                    CancellationToken.None);
+                Assert.That(WaitForFile(childPidPath, TimeSpan.FromSeconds(1)), Is.True);
+
+                Assert.That(await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(2))), Is.EqualTo(task));
+
+                var result = await task;
+                Assert.That(stopwatch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(2)));
+                Assert.That(result.TimedOut, Is.True);
+                Assert.That(IsProcessRunning(ReadPid(childPidPath)), Is.True);
+            }
+            finally
+            {
+                KillIfRunning(ReadPid(childPidPath));
+                Directory.Delete(helperDirectory, true);
+            }
+        }
+
+        [Test]
+        public void ProcessRunner_UsesDisposableCancellationSourcesForDeadlineAndCleanup()
+        {
+            var package = PackageInfo.FindForAssembly(typeof(AssignMaterialCommand).Assembly);
+            var source = File.ReadAllText(Path.Combine(
+                package.assetPath,
+                "Editor/Setup/SystemUnityCliProcessRunner.cs"));
+
+            Assert.That(source, Does.Contain("new CancellationTokenSource(timeout)"));
+            Assert.That(source, Does.Contain("CancellationTokenSource.CreateLinkedTokenSource"));
+            Assert.That(source, Does.Not.Contain("Task.Delay(timeout)"));
         }
 
         [Test]
@@ -196,6 +267,14 @@ namespace McpUnity.Extensions.Tests
             var directory = Path.Combine(Path.GetTempPath(), "mcp-unity-cli-runner-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             return directory;
+        }
+
+        private static void RequirePosixHelper()
+        {
+            if (Application.platform == RuntimePlatform.WindowsEditor)
+            {
+                Assert.Ignore("POSIX helper-process regression is not available on Windows.");
+            }
         }
 
         private static bool WaitForFile(string path, TimeSpan timeout)

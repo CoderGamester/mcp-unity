@@ -16,52 +16,86 @@ namespace McpUnity.Extensions.Setup
             CancellationToken cancellationToken)
         {
             using (var process = new Process())
+            using (var deadlineSource = new CancellationTokenSource(timeout))
+            using (var interruptionSource = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                deadlineSource.Token))
             {
-                process.StartInfo = new ProcessStartInfo
-                {
-                    FileName = executablePath,
-                    Arguments = arguments,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                process.EnableRaisingEvents = true;
-                var exited = new TaskCompletionSource<bool>();
-                process.Exited += (sender, eventArgs) => exited.TrySetResult(true);
-
                 try
                 {
-                    process.Start();
-                }
-                catch (Exception exception)
-                {
-                    return new UnityCliProcessResult(string.Empty, exception.Message, -1, false);
-                }
+                    process.StartInfo = new ProcessStartInfo
+                    {
+                        FileName = executablePath,
+                        Arguments = arguments,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    process.EnableRaisingEvents = true;
+                    var exited = new TaskCompletionSource<bool>();
+                    process.Exited += (sender, eventArgs) => exited.TrySetResult(true);
 
-                var standardOutput = process.StandardOutput.ReadToEndAsync();
-                var standardError = process.StandardError.ReadToEndAsync();
-                if (process.HasExited)
-                {
-                    exited.TrySetResult(true);
-                }
+                    try
+                    {
+                        process.Start();
+                    }
+                    catch (Exception exception)
+                    {
+                        return new UnityCliProcessResult(string.Empty, exception.Message, -1, false);
+                    }
 
-                var timeoutTask = Task.Delay(timeout);
-                var cancellationTask = Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
-                var completed = await Task.WhenAny(exited.Task, timeoutTask, cancellationTask);
-                if (completed == exited.Task)
-                {
-                    return new UnityCliProcessResult(
-                        await standardOutput,
-                        await standardError,
-                        process.ExitCode,
-                        false);
-                }
+                    var standardOutput = process.StandardOutput.ReadToEndAsync();
+                    var standardError = process.StandardError.ReadToEndAsync();
+                    if (process.HasExited)
+                    {
+                        exited.TrySetResult(true);
+                    }
 
-                var timedOut = completed == timeoutTask;
-                TryKillOwnedProcess(process);
-                await Task.WhenAny(exited.Task, Task.Delay(CleanupGrace));
-                await Task.WhenAny(Task.WhenAll(standardOutput, standardError), Task.Delay(CleanupGrace));
+                    var interruptionTask = Task.Delay(System.Threading.Timeout.Infinite, interruptionSource.Token);
+                    var completed = await Task.WhenAny(exited.Task, interruptionTask);
+                    if (completed == exited.Task)
+                    {
+                        var streams = Task.WhenAll(standardOutput, standardError);
+                        if (await Task.WhenAny(streams, interruptionTask) == streams)
+                        {
+                            return new UnityCliProcessResult(
+                                await standardOutput,
+                                await standardError,
+                                process.ExitCode,
+                                false);
+                        }
+                    }
+
+                    var timedOut = deadlineSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+                    TryKillOwnedProcess(process);
+                    return await CompleteInterruptedProcessAsync(
+                        process,
+                        exited.Task,
+                        standardOutput,
+                        standardError,
+                        timedOut);
+                }
+                finally
+                {
+                    interruptionSource.Cancel();
+                    deadlineSource.Cancel();
+                }
+            }
+        }
+
+        private static async Task<UnityCliProcessResult> CompleteInterruptedProcessAsync(
+            Process process,
+            Task exited,
+            Task<string> standardOutput,
+            Task<string> standardError,
+            bool timedOut)
+        {
+            using (var cleanupSource = new CancellationTokenSource(CleanupGrace))
+            {
+                var cleanupTask = Task.Delay(System.Threading.Timeout.Infinite, cleanupSource.Token);
+                await Task.WhenAny(exited, cleanupTask);
+                await Task.WhenAny(Task.WhenAll(standardOutput, standardError), cleanupTask);
                 return new UnityCliProcessResult(
                     GetCompletedResult(standardOutput),
                     GetCompletedResult(standardError),

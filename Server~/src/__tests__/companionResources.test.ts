@@ -186,6 +186,85 @@ describe('companion resource mappings', () => {
     expect(root.omittedDescendantsKnown).toBe(false);
   });
 
+  test('bounds every projected hierarchy value from one malicious node', async () => {
+    const huge = 'x'.repeat(2_000_000);
+    const components: unknown[] = Array.from(
+      { length: 100_000 },
+      (_, index) =>
+        index === 0
+          ? huge
+          : index === 1
+            ? { name: huge, nested: { surprise: huge } }
+            : 'Transform',
+    );
+    const hierarchy = {
+      sceneName: huge,
+      scenePath: huge,
+      isDirty: { nested: true },
+      isActive: true,
+      metadataSurprise: { payload: huge },
+      roots: [
+        {
+          name: huge,
+          hierarchyPath: huge,
+          instanceId: { nested: 42 },
+          activeSelf: 'true',
+          components,
+          objectSurprise: { payload: huge },
+          children: [],
+        },
+      ],
+    };
+    const resources = new CompanionResourceService(
+      clientWith(async () => toolResult(hierarchy)),
+    );
+
+    const result = await resources.read(
+      'unity://scenes-hierarchy?max_nodes=1',
+    );
+    const root = (result.payload.roots as Array<Record<string, unknown>>)[0];
+    const outputComponents = root.components as string[];
+
+    expect((result.payload.sceneName as string).length).toBeLessThanOrEqual(256);
+    expect((result.payload.scenePath as string).length).toBeLessThanOrEqual(1024);
+    expect((root.name as string).length).toBeLessThanOrEqual(256);
+    expect((root.hierarchyPath as string).length).toBeLessThanOrEqual(1024);
+    expect(outputComponents.length).toBeLessThanOrEqual(32);
+    expect(outputComponents.every((value) => value.length <= 128)).toBe(true);
+    expect(root).not.toHaveProperty('instanceId');
+    expect(root).not.toHaveProperty('activeSelf');
+    expect(root).not.toHaveProperty('objectSurprise');
+    expect(result.payload).not.toHaveProperty('metadataSurprise');
+    expect(root.projection).toMatchObject({
+      truncatedStringCount: 2,
+      truncatedStrings: {
+        name: { originalLength: 2_000_000, returnedLength: 256 },
+        hierarchyPath: { originalLength: 2_000_000, returnedLength: 1024 },
+      },
+      omittedKnownFieldCount: 2,
+      omittedKnownFields: ['instanceId', 'activeSelf'],
+      components: {
+        sourceCount: 100_000,
+        returnedCount: 32,
+        omittedCount: 99_968,
+        namesTruncated: 2,
+        scanTruncated: true,
+      },
+    });
+    expect(result.payload.metadataProjection).toMatchObject({
+      truncatedStringCount: 2,
+      truncatedStrings: {
+        sceneName: { originalLength: 2_000_000, returnedLength: 256 },
+        scenePath: { originalLength: 2_000_000, returnedLength: 1024 },
+      },
+      omittedKnownFieldCount: 1,
+      omittedKnownFields: ['isDirty'],
+    });
+    expect(Buffer.byteLength(JSON.stringify(result.payload))).toBeLessThan(
+      10_000,
+    );
+  });
+
   test('maps a GameObject target to bounded inspect_gameobject defaults', async () => {
     const client = clientWith(async () => toolResult({ name: 'Player' }));
     const resources = new CompanionResourceService(client);

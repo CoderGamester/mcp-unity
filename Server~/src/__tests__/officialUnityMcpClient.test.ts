@@ -1,5 +1,9 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { jest } from '@jest/globals';
 import {
+  createOfficialUnitySessionStart,
   OfficialUnityMcpClient,
   type OfficialUnitySession,
   type OfficialUnitySessionFactory,
@@ -12,6 +16,23 @@ function deferred<T>() {
     resolve = resolver;
   });
   return { promise, resolve };
+}
+
+async function completesWithin<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+): Promise<T | 'timed-out'> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<'timed-out'>((resolve) => {
+        timeout = setTimeout(() => resolve('timed-out'), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function session(
@@ -147,9 +168,10 @@ describe('OfficialUnityMcpClient', () => {
     expect(factory).toHaveBeenCalledTimes(1);
   });
 
-  test('close returns promptly before connect resolves and late readiness is owned once', async () => {
+  test('close rejects pending reads promptly but waits for actual teardown', async () => {
     const gate = deferred<OfficialUnitySession>();
-    const start = sessionStart(gate.promise);
+    const teardown = deferred<void>();
+    const start = sessionStart(gate.promise, jest.fn(() => teardown.promise));
     const factory = jest.fn(() => start);
     const client = new OfficialUnityMcpClient({
       cliPath: 'unity',
@@ -157,18 +179,54 @@ describe('OfficialUnityMcpClient', () => {
       sessionFactory: factory,
     });
     const read = client.readTool('get_console_logs', {});
+    let closeSettled = false;
+    const close = client.close().then(() => {
+      closeSettled = true;
+    });
 
     await expect(
       Promise.race([
-        client.close().then(() => 'closed'),
-        new Promise((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+        read,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('read did not stop')), 100),
+        ),
       ]),
-    ).resolves.toBe('closed');
-    await expect(read).rejects.toThrow('closed');
+    ).rejects.toThrow('closed');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(closeSettled).toBe(false);
     expect(start.close).toHaveBeenCalledTimes(1);
+
+    teardown.resolve();
+    await close;
+    expect(closeSettled).toBe(true);
 
     gate.resolve(session());
     await new Promise((resolve) => setImmediate(resolve));
+    expect(start.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('close does not resolve before an active child teardown resolves', async () => {
+    const teardown = deferred<void>();
+    const start = sessionStart(session(), jest.fn(() => teardown.promise));
+    const client = new OfficialUnityMcpClient({
+      cliPath: 'unity',
+      projectPath: '/projects/game',
+      sessionFactory: () => start,
+    });
+    await client.readTool('get_console_logs', {});
+
+    let closeSettled = false;
+    const close = client.close().then(() => {
+      closeSettled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(closeSettled).toBe(false);
+    expect(start.close).toHaveBeenCalledTimes(1);
+
+    teardown.resolve();
+    await close;
+    await client.close();
     expect(start.close).toHaveBeenCalledTimes(1);
   });
 
@@ -282,4 +340,191 @@ describe('OfficialUnityMcpClient', () => {
     expect(factory).toHaveBeenCalledTimes(2);
     expect(retryStart.close).not.toHaveBeenCalled();
   });
+
+  test('completes old child teardown before invoking the replacement factory', async () => {
+    const teardown = deferred<void>();
+    const firstStart = sessionStart(
+      session(async () => {
+        throw new Error('Connection closed');
+      }),
+      jest.fn(() => teardown.promise),
+    );
+    const secondStart = sessionStart(session());
+    const factory = jest
+      .fn<ReturnType<OfficialUnitySessionFactory>, Parameters<OfficialUnitySessionFactory>>()
+      .mockReturnValueOnce(firstStart)
+      .mockReturnValueOnce(secondStart);
+    const client = new OfficialUnityMcpClient({
+      cliPath: 'unity',
+      projectPath: '/projects/game',
+      sessionFactory: factory,
+    });
+
+    const read = client.readTool('get_console_logs', {});
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(firstStart.close).toHaveBeenCalledTimes(1);
+    expect(factory).toHaveBeenCalledTimes(1);
+
+    teardown.resolve();
+    await expect(read).resolves.toMatchObject({
+      content: [{ type: 'text', text: '{"ok":true}' }],
+    });
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('official Unity SDK session ownership', () => {
+  test('aborts pending SDK initialization and awaits one memoized client teardown', async () => {
+    let connectOptions:
+      | { signal?: AbortSignal; timeout?: number; maxTotalTimeout?: number }
+      | undefined;
+    const clientClose = deferred<void>();
+    const client = {
+      connect: jest.fn(
+        async (
+          _transport: unknown,
+          options: {
+            signal?: AbortSignal;
+            timeout?: number;
+            maxTotalTimeout?: number;
+          },
+        ) => {
+          connectOptions = options;
+          await new Promise<void>((_resolve, reject) => {
+            options.signal?.addEventListener(
+              'abort',
+              () => reject(new Error('initialize aborted')),
+              { once: true },
+            );
+          });
+        },
+      ),
+      callTool: jest.fn(),
+      close: jest.fn(() => clientClose.promise),
+    };
+    const transport = {
+      pid: null,
+      close: jest.fn(async () => undefined),
+    };
+    const start = createOfficialUnitySessionStart(
+      { cliPath: '/opt/unity', projectPath: '/projects/game' },
+      {
+        createClient: () => client,
+        createTransport: () => transport,
+      },
+    );
+    const ready = start.ready.catch((error: unknown) => error);
+
+    const firstClose = start.close();
+    const secondClose = start.close();
+    expect(firstClose).toBe(secondClose);
+    expect(connectOptions).toMatchObject({
+      timeout: 10_000,
+      maxTotalTimeout: 10_000,
+    });
+    expect(connectOptions?.signal?.aborted).toBe(true);
+    expect(client.close).toHaveBeenCalledTimes(1);
+
+    let closeSettled = false;
+    void firstClose.then(() => {
+      closeSettled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(closeSettled).toBe(false);
+
+    clientClose.resolve();
+    await firstClose;
+    await expect(ready).resolves.toBeInstanceOf(Error);
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(transport.close).not.toHaveBeenCalled();
+  });
+
+  test('forces direct bounded transport cleanup when SDK client close stalls', async () => {
+    const transportClose = deferred<void>();
+    const client = {
+      connect: jest.fn(async () => undefined),
+      callTool: jest.fn(),
+      close: jest.fn(() => new Promise<void>(() => undefined)),
+    };
+    const transport = {
+      pid: null,
+      close: jest.fn(() => transportClose.promise),
+    };
+    const start = createOfficialUnitySessionStart(
+      { cliPath: '/opt/unity', projectPath: '/projects/game' },
+      {
+        createClient: () => client,
+        createTransport: () => transport,
+        sdkCloseGraceMs: 10,
+        transportCloseTimeoutMs: 100,
+        processExitTimeoutMs: 10,
+      },
+    );
+    await start.ready;
+
+    let closeSettled = false;
+    const close = start.close().then(() => {
+      closeSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(transport.close).toHaveBeenCalledTimes(1);
+    expect(closeSettled).toBe(false);
+
+    transportClose.resolve();
+    await close;
+    expect(closeSettled).toBe(true);
+  });
+
+  const posixTest = process.platform === 'win32' ? test.skip : test;
+  posixTest(
+    'kills a real stubborn CLI child before teardown reports completion',
+    async () => {
+      const fixtureDirectory = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'mcp-unity-stubborn-cli-'),
+      );
+      const executable = path.join(fixtureDirectory, 'unity-stubborn');
+      const pidFile = path.join(fixtureDirectory, 'stubborn.pid');
+      fs.writeFileSync(
+        executable,
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const projectIndex = process.argv.indexOf('--project-path');
+const projectPath = process.argv[projectIndex + 1];
+fs.writeFileSync(path.join(projectPath, 'stubborn.pid'), String(process.pid));
+process.on('SIGTERM', () => {});
+process.stdin.resume();
+setInterval(() => {}, 1000);
+`,
+        { mode: 0o755 },
+      );
+
+      const start = createOfficialUnitySessionStart({
+        cliPath: executable,
+        projectPath: fixtureDirectory,
+      });
+      const ready = start.ready.catch((error: unknown) => error);
+      try {
+        const deadline = Date.now() + 2000;
+        while (!fs.existsSync(pidFile) && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(fs.existsSync(pidFile)).toBe(true);
+        const childPid = Number(fs.readFileSync(pidFile, 'utf8'));
+
+        await expect(
+          completesWithin(start.close().then(() => 'closed'), 6000),
+        ).resolves.toBe('closed');
+        await expect(ready).resolves.toBeInstanceOf(Error);
+        expect(() => process.kill(childPid, 0)).toThrow();
+      } finally {
+        await start.close();
+        fs.rmSync(fixtureDirectory, { recursive: true, force: true });
+      }
+    },
+    10_000,
+  );
 });

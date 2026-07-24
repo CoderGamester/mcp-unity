@@ -1,5 +1,13 @@
 const LOG_SEVERITIES = new Set(['all', 'log', 'warning', 'error']);
 const TEST_MODES = new Set(['all', 'editor', 'playmode']);
+const NODE_NAME_MAX_LENGTH = 256;
+const HIERARCHY_PATH_MAX_LENGTH = 1024;
+const SCENE_NAME_MAX_LENGTH = 256;
+const SCENE_PATH_MAX_LENGTH = 1024;
+const INSTANCE_ID_MAX_LENGTH = 128;
+const COMPONENT_MAX_COUNT = 32;
+const COMPONENT_SCAN_LIMIT = 128;
+const COMPONENT_NAME_MAX_LENGTH = 128;
 export class CompanionResourceService {
     client;
     constructor(client) {
@@ -261,25 +269,129 @@ function projectHierarchyNode(source) {
         children: [],
         childrenTruncated: source.childrenTruncated === true,
     };
-    for (const field of [
-        'name',
-        'instanceId',
-        'hierarchyPath',
-        'activeSelf',
-        'components',
-    ]) {
-        if (field in source)
-            output[field] = source[field];
+    const projection = {};
+    copyBoundedString(source, output, projection, 'name', NODE_NAME_MAX_LENGTH);
+    copyBoundedString(source, output, projection, 'hierarchyPath', HIERARCHY_PATH_MAX_LENGTH);
+    copyBoundedInstanceId(source, output, projection);
+    copyBoolean(source, output, projection, 'activeSelf');
+    copyBoundedComponents(source, output, projection);
+    if (hasProjectionNotice(projection)) {
+        output.projection = projection;
     }
     return output;
 }
 function projectHierarchyMetadata(hierarchy) {
     const metadata = {};
-    for (const field of ['sceneName', 'scenePath', 'isDirty', 'isActive']) {
-        if (field in hierarchy)
-            metadata[field] = hierarchy[field];
+    const projection = {};
+    copyBoundedString(hierarchy, metadata, projection, 'sceneName', SCENE_NAME_MAX_LENGTH);
+    copyBoundedString(hierarchy, metadata, projection, 'scenePath', SCENE_PATH_MAX_LENGTH);
+    copyBoolean(hierarchy, metadata, projection, 'isDirty');
+    copyBoolean(hierarchy, metadata, projection, 'isActive');
+    if (hasProjectionNotice(projection)) {
+        metadata.metadataProjection = projection;
     }
     return metadata;
+}
+function copyBoundedString(source, output, projection, field, maxLength) {
+    if (!(field in source))
+        return;
+    const value = source[field];
+    if (typeof value !== 'string') {
+        markOmittedField(projection, field);
+        return;
+    }
+    output[field] = boundedString(value, maxLength, projection, field);
+}
+function copyBoundedInstanceId(source, output, projection) {
+    if (!('instanceId' in source))
+        return;
+    const value = source.instanceId;
+    if (typeof value === 'number' && Number.isSafeInteger(value)) {
+        output.instanceId = value;
+        return;
+    }
+    if (typeof value === 'string') {
+        output.instanceId = boundedString(value, INSTANCE_ID_MAX_LENGTH, projection, 'instanceId');
+        return;
+    }
+    markOmittedField(projection, 'instanceId');
+}
+function copyBoolean(source, output, projection, field) {
+    if (!(field in source))
+        return;
+    const value = source[field];
+    if (typeof value === 'boolean') {
+        output[field] = value;
+    }
+    else {
+        markOmittedField(projection, field);
+    }
+}
+function copyBoundedComponents(source, output, projection) {
+    if (!('components' in source))
+        return;
+    if (!Array.isArray(source.components)) {
+        markOmittedField(projection, 'components');
+        return;
+    }
+    const sourceComponents = source.components;
+    const components = [];
+    let scannedCount = 0;
+    let invalidScanned = 0;
+    let namesTruncated = 0;
+    const scanCount = Math.min(sourceComponents.length, COMPONENT_SCAN_LIMIT);
+    while (scannedCount < scanCount &&
+        components.length < COMPONENT_MAX_COUNT) {
+        const candidate = sourceComponents[scannedCount++];
+        const name = typeof candidate === 'string'
+            ? candidate
+            : isRecord(candidate) && typeof candidate.name === 'string'
+                ? candidate.name
+                : undefined;
+        if (name === undefined) {
+            invalidScanned++;
+            continue;
+        }
+        if (name.length > COMPONENT_NAME_MAX_LENGTH)
+            namesTruncated++;
+        components.push(name.slice(0, COMPONENT_NAME_MAX_LENGTH));
+    }
+    output.components = components;
+    const omittedCount = sourceComponents.length - components.length;
+    if (omittedCount > 0 || namesTruncated > 0 || invalidScanned > 0) {
+        projection.components = {
+            sourceCount: sourceComponents.length,
+            scannedCount,
+            returnedCount: components.length,
+            omittedCount,
+            invalidScanned,
+            namesTruncated,
+            scanTruncated: scannedCount < sourceComponents.length,
+        };
+    }
+}
+function boundedString(value, maxLength, projection, field) {
+    if (value.length <= maxLength)
+        return value;
+    projection.truncatedStringCount =
+        (projection.truncatedStringCount ?? 0) + 1;
+    projection.truncatedStrings ??= {};
+    projection.truncatedStrings[field] = {
+        originalLength: value.length,
+        returnedLength: maxLength,
+    };
+    return value.slice(0, maxLength);
+}
+function markOmittedField(projection, field) {
+    projection.omittedKnownFieldCount =
+        (projection.omittedKnownFieldCount ?? 0) + 1;
+    projection.omittedKnownFields ??= [];
+    projection.omittedKnownFields.push(field);
+}
+function hasProjectionNotice(projection) {
+    return (projection.truncatedStrings !== undefined ||
+        projection.omittedKnownFields !== undefined ||
+        projection.components !== undefined);
 }
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);

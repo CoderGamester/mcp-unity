@@ -1,172 +1,156 @@
-## MCP Unity — AI Agent Guide (MCP Package)
+# MCP Unity 2.0 maintainer guide
 
-### Purpose (what this repo is)
-**MCP Unity** exposes Unity Editor capabilities to MCP-enabled clients by running:
-- **Unity-side “client” (C# Editor scripts)**: a WebSocket server inside the Unity Editor that executes tools/resources.
-- **Node-side “server” (TypeScript)**: an MCP stdio server that registers MCP tools/resources and forwards requests to Unity over WebSocket.
+## Scope
 
-### How it works (high-level data flow)
-- **MCP client** ⇄ (stdio / MCP SDK) ⇄ **Node server** (`Server~/src/index.ts`)
-- **Node server** ⇄ (WebSocket JSON-RPC-ish) ⇄ **Unity Editor** (`Editor/UnityBridge/McpUnityServer.cs` + `McpUnitySocketHandler.cs`)
-- **Tool/Resource names must match exactly** across Node and Unity (typically `lower_snake_case`).
+MCP Unity 2.0.0 extends Unity CLI and Pipeline. It is not a transport bridge.
 
-### Key defaults & invariants
-- **Unity WebSocket endpoint**: `ws://localhost:8090/McpUnity` by default.
-- **Config file**: `ProjectSettings/McpUnitySettings.json` (written/read by Unity; read opportunistically by Node).
-- **Execution thread**: Tool/resource execution is dispatched via `EditorCoroutineUtility` and runs on the **Unity main thread**. Keep synchronous work short; use async patterns for long work.
+Supported Editors are Unity 6000.0, Unity 6000.3, and Unity 6000.5. The root package must keep these exact release pins:
 
-### Repo layout (where to change what)
-```
-/
-├── Editor/                       # Unity Editor package code (C#)
-│   ├── Tools/                    # Tools (inherit McpToolBase)
-│   ├── Resources/                # Resources (inherit McpResourceBase)
-│   ├── UnityBridge/              # WebSocket server + message routing
-│   ├── Services/                 # Test/log services used by tools/resources
-│   └── Utils/                    # Shared helpers (config, logging, workspace integration)
-├── Server~/                      # Node MCP server (TypeScript, ESM)
-│   ├── src/index.ts              # Registers tools/resources/prompts with MCP SDK
-│   ├── src/tools/                # MCP tool definitions (zod schema + handler)
-│   ├── src/resources/            # MCP resource definitions
-│   └── src/unity/mcpUnity.ts      # WebSocket client that talks to Unity
+- `com.unity.pipeline@0.3.1-exp.1`
+- `com.unity.test-framework@1.3.3`
+- minimum Unity `6000.0`
+- minimum Unity CLI 1.0.0-beta.2
+
+Unity CLI remains an explicit developer/CI installation. `Window > MCP Unity > Setup` may detect it with only `unity --version` and copy instructions/configuration after a user action. It must never install, upgrade, elevate, edit PATH/shell files, write client configuration, or persist a machine path in the project.
+
+## Architecture and data flow
+
+Primary flow:
+
+```text
+MCP host -> `unity mcp --project-path <absolute-project>` -> Pipeline
+    -> Pipeline built-ins + MCP Unity `[CliCommand]` extensions -> Unity Editor
 ```
 
-### Quickstart (local dev)
-- **Unity side**
-  - Open the Unity project that has this package installed.
-  - Ensure the server is running (auto-start is controlled by `McpUnitySettings.AutoStartServer`).
-  - Settings persist in `ProjectSettings/McpUnitySettings.json`.
+Optional read-oriented flow:
 
-- **Node side (build)**
-  - `cd Server~ && npm run build`
-  - The MCP entrypoint is `Server~/build/index.js` (published as an MCP stdio server).
+```text
+MCP host -> private `Server~/build/index.js`
+    -> lazily owned Unity CLI stdio session -> Pipeline -> Unity Editor
+```
 
-- **Node side (debug/inspect)**
-  - `cd Server~ && npm run inspector` to use the MCP Inspector.
+UPM resolves Pipeline from the root `package.json`. Do not invoke `unity pipeline install`, use `Client.Add` during initialization, or vendor Pipeline.
 
-### Configuration (Unity ↔ Node bridge)
-The Unity settings file is the shared contract:
-- **Path**: `ProjectSettings/McpUnitySettings.json`
-- **Fields**
-  - **Port** (default **8090**): Unity WebSocket server port.
-  - **RequestTimeoutSeconds** (default **10**): Node request timeout (Node reads this if the settings file is discoverable).
-  - **AllowRemoteConnections** (default **false**): Unity binds to `0.0.0.0` when enabled; otherwise `localhost`.
-  - **EnableInfoLogs**: Unity console logging verbosity.
-  - **NpmExecutablePath**: optional npm path for Unity-driven install/build.
+The package is local-only. Remote users run Unity CLI on the Unity host and reach it through SSH or external agent infrastructure.
 
-Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **its current working directory**. If not found, Node falls back to:
-- **host**: `localhost`
-- **port**: `8090`
-- **timeout**: `10s`
+## Layout
 
-**Remote connection note**:
-- If Unity is on another machine, set `AllowRemoteConnections=true` in Unity and set `UNITY_HOST=<unity_machine_ip_or_hostname>` for the Node process.
+```text
+Editor/
+  Commands/               Five public Pipeline extension commands and DTOs
+  Setup/                  User-initiated CLI/Pipeline checks and copy helpers
+  Tests/                  EditMode contracts, safety, Undo, bounds, setup tests
+Server~/
+  src/cli/                Args, CLI lookup, strict version check
+  src/unity/              Owned official Unity MCP child session
+  src/resources/          Read-only resource projection and dashboard
+  src/prompts/            Companion prompts
+  src/ui/                 Dashboard source
+  src/__tests__/          Companion and release-contract tests
+  build/                  Bundled private companion output
+package.json              UPM identity and exact Pipeline dependency
+README.md                 User setup and exhaustive 1.4 migration table
+CHANGELOG.md              Release notes
+```
 
-### Adding a new capability
+`Server~` is private and bundled. Keep Node 20+, `@modelcontextprotocol/sdk@1.26.0`, `@modelcontextprotocol/ext-apps@1.0.1`, and `zod@3.25.76` exact until a coordinated upgrade is tested. It has no npm `bin`, publish configuration, registry manifest, Docker image, or Smithery surface.
 
-### Add a tool
-1. **Unity (C#)**
-   - Add `Editor/Tools/<YourTool>Tool.cs` inheriting `McpToolBase`.
-   - Set `Name` to the MCP tool name (recommended: `lower_snake_case`).
-   - Implement:
-     - `Execute(JObject parameters)` for synchronous work, or
-     - set `IsAsync = true` and implement `ExecuteAsync(JObject parameters, TaskCompletionSource<JObject> tcs)` for long-running operations.
-   - Register it in `Editor/UnityBridge/McpUnityServer.cs` (`RegisterTools()`).
+## Public catalogs
 
-2. **Node (TypeScript)**
-   - Add `Server~/src/tools/<yourTool>Tool.ts`.
-   - Register the tool in `Server~/src/index.ts`.
-   - Use a zod schema for params; forward to Unity using the same `method` string:
-     - `mcpUnity.sendRequest({ method: toolName, params: {...} })`
+The only MCP Unity commands are:
 
-3. **Build**
-   - `cd Server~ && npm run build`
+- `inspect_gameobject`
+- `duplicate_gameobject`
+- `unload_scene`
+- `editor_step`
+- `assign_material`
 
-### Add a resource
-1. **Unity (C#)**
-   - Add `Editor/Resources/<YourResource>Resource.cs` inheriting `McpResourceBase`.
-   - Set `Name` (method string) and `Uri` (e.g. `unity://...`).
-   - Implement `Fetch(...)` or `FetchAsync(...)`.
-   - Register in `Editor/UnityBridge/McpUnityServer.cs` (`RegisterResources()`).
+The optional companion exposes only:
 
-2. **Node (TypeScript)**
-   - Add `Server~/src/resources/<yourResource>.ts`, register in `Server~/src/index.ts`.
-   - Forward to Unity via `mcpUnity.sendRequest({ method: resourceName, params: {} })`.
+- tool `show_unity_dashboard`
+- resources:
+  - `unity://logs{?severity,limit}`
+  - `unity://scenes-hierarchy{?path,max_nodes}`
+  - `unity://gameobject/{target}`
+  - `unity://packages{?include_indirect}`
+  - `unity://tests/{mode}`
+  - `ui://unity-dashboard`
+- prompts:
+  - `gameobject_handling_strategy`
+  - `unity_dashboard`
 
-### Logging & debugging
-- **Unity**
-  - Uses `McpUnity.Utils.McpLogger` (info logs gated by `EnableInfoLogs`).
-  - Connection lifecycle is managed in `Editor/UnityBridge/McpUnityServer.cs` (domain reload & playmode transitions stop/restart the server).
+Everything else maps to the official Pipeline 0.3.1-exp.1 catalog. Legacy aliases are intentionally absent.
 
-- **Node**
-  - Logging is controlled by env vars:
-    - `LOGGING=true` enables console logging.
-    - `LOGGING_FILE=true` writes `log.txt` in the Node process working directory.
+## Adding or changing an extension command
 
-### Common pitfalls
-- **Port mismatch**: Unity default is **8090**; update docs/config if you change it.
-- **Name mismatch**: Node `toolName`/`resourceName` must equal Unity `Name` exactly, or Unity responds `unknown_method`.
-- **Long main-thread work**: synchronous `Execute()` blocks the Unity editor; use async patterns for heavy operations.
-- **Remote connections**: Unity must bind `0.0.0.0` (`AllowRemoteConnections=true`) and Node must target the correct host (`UNITY_HOST`).
-- **Unity domain reload**: the server stops during script reloads and may restart; avoid relying on persistent in-memory state across reloads.
-- **Multiplayer Play Mode**: Clone instances automatically skip server startup; only the main editor hosts the MCP server.
-- **Schema compatibility across clients**: avoid reusing the same nested Zod object instance for multiple sibling fields (for example `position`, `rotation`, `scale`). Some MCP clients fail on local refs like `#/properties/position`; prefer creating a fresh nested schema per field.
+1. Start with a failing EditMode test under `Editor/Tests`.
+2. Implement the command under `Editor/Commands` with Pipeline `[CliCommand]`, `[CliArg]`, `ObjectRef`, and `AuthoringResult` contracts.
+3. Keep inputs explicit and bounded. Inspection-like outputs need depth, count, collection, and string limits.
+4. Record Undo for scene/object mutation and record prefab instance modifications.
+5. Return stable DTOs with explicit camelCase serialization names.
+6. Update `CommandDiscoveryTests` so a collision with the pinned Pipeline catalog fails.
+7. Update README/AGENTS catalogs and migration guidance when public behavior changes.
+8. Run the complete Unity matrix.
 
-### Release/version bump checklist
-- Update versions consistently:
-  - Unity package `package.json` (`version`)
-  - Node server `Server~/package.json` (`version`)
-- Rebuild Node output: `cd Server~ && npm run build`
+Do not add Node proxies for mutation commands.
 
-### Available tools (current)
-- `execute_menu_item` — Execute Unity menu items
-- `select_gameobject` — Select GameObjects in hierarchy
-- `update_gameobject` — Update or create GameObject properties
-- `update_component` — Update or add components on GameObjects
-- `add_package` — Install packages via Package Manager
-- `run_tests` — Run Unity Test Runner tests
-- `send_console_log` — Send logs to Unity console
-- `add_asset_to_scene` — Add assets to scene
-- `create_prefab` — Create prefabs with optional scripts
-- `create_scene` — Create and save new scenes
-- `load_scene` — Load scenes (single or additive)
-- `delete_scene` — Delete scenes and remove from Build Settings
-- `save_scene` — Save current scene (with optional Save As)
-- `get_scene_info` — Get active scene info and loaded scenes list
-- `get_play_mode_status` — Get Unity play mode status (isPlaying, isPaused)
-- `set_play_mode_status` — Control Unity play mode (play, pause, stop, step)
-- `unload_scene` — Unload scene from hierarchy
-- `get_gameobject` — Get detailed GameObject info
-- `get_console_logs` — Retrieve Unity console logs
-- `recompile_scripts` — Recompile all project scripts
-- `duplicate_gameobject` — Duplicate GameObjects with optional rename/reparent
-- `delete_gameobject` — Delete GameObjects from scene
-- `reparent_gameobject` — Change GameObject parent in hierarchy
-- `create_material` — Create materials with specified shader
-- `assign_material` — Assign materials to Renderer components
-- `modify_material` — Modify material properties (colors, floats, textures)
-- `get_material_info` — Get material details including all properties
+## Adding or changing a companion resource
 
-### Available apps (current)
-- `show_unity_dashboard` — Open the Unity dashboard MCP App in VS Code
+1. Start with a failing Jest test in `Server~/src/__tests__`.
+2. Map the URI to an official read-only Pipeline command or one of the five extensions in `Server~/src/resources/companionResources.ts`.
+3. Validate and bound all URI inputs and projected output.
+4. Decode structured content and JSON text defensively.
+5. Permit at most one reconnect/retry for a transport-interrupted read.
+6. Never retry, mirror, or expose a mutation tool.
+7. Register only the approved URI in `Server~/src/companionServer.ts` and update catalog contract tests.
 
-### Available resources (current)
-- `unity://menu-items` — List of available menu items
-- `unity://scenes-hierarchy` — Current scene hierarchy
-- `unity://gameobject/{id}` — GameObject details by ID or path
-- `unity://logs` — Unity console logs
-- `unity://packages` — Installed and available packages
-- `unity://assets` — Asset database information
-- `unity://tests/{testMode}` — Test Runner test information
-- `ui://unity-dashboard` — Unity dashboard MCP App UI
+The companion CLI lookup order is `--unity-cli-path`, `UNITY_CLI_PATH`, then `unity` from `PATH`. It may execute `--version` for validation and lazily launch `unity mcp --project-path <project>` for its MCP session. It must not install Unity CLI.
 
-### Available prompts (current)
-- `unity_dashboard` — Opens Unity dashboard MCP app with guided information about features
-- `gameobject_handling_strategy` — Provides structured workflow for GameObject operations
+## Test and build commands
 
-### Update policy (for agents)
-- Update this file when:
-  - tools/resources/prompts are added/removed/renamed,
-  - config shape or default ports/paths change,
-  - the bridge protocol changes (request/response contract).
-- Keep it **high-signal**: where to edit code, how to run/build/debug, and the invariants that prevent subtle breakage.
+Companion:
+
+```bash
+cd Server~
+npm ci
+npm test -- --runInBand --detectOpenHandles
+npm run build
+npm audit
+```
+
+The pinned MCP SDK currently reports two moderate advisories through an unused Hono HTTP adapter. The companion is stdio-only. Record the audit result; do not change the mandated SDK pin without a compatibility upgrade task.
+
+Unity EditMode batch pattern:
+
+```bash
+"<Unity.app>/Contents/MacOS/Unity" \
+  -batchmode -nographics -projectPath "<disposable-project>" \
+  -runTests -testPlatform EditMode -testResults "<results.xml>"
+```
+
+Run on:
+
+- `/Applications/Unity/Hub/Editor/6000.0.80f1/Unity.app`
+- `/Applications/Unity/Hub/Editor/6000.3.18f1/Unity.app`
+- `/Applications/Unity/Hub/Editor/6000.5.5f1/Unity.app`
+
+Also run `git diff --check`, verify a clean UPM install/removal, confirm no old bridge listener exists, and confirm no legacy settings file is created.
+
+## Release and architecture invariants
+
+- Root and companion versions stay synchronized at `2.0.0` for this release.
+- README and this guide state Pipeline `0.3.1-exp.1`, Unity CLI 1.0.0-beta.2, and all three supported Unity lines.
+- UPM declares Pipeline exactly once as a transitive dependency of consuming projects.
+- Removing MCP Unity from a consumer manifest must not leave a direct Pipeline entry.
+- `Window > MCP Unity > Setup` never opens automatically.
+- No custom WebSocket server/client, socket handler, command queue, reconnect generation, port 8090 management, or `ProjectSettings/McpUnitySettings.json` may return.
+- No direct Editor Coroutines or Newtonsoft package dependency may return.
+- No registry server manifest, npm publication surface, automatic client configuration, Unity-driven npm build, or PackedCache workspace mutation may return.
+- The package remains useful without the companion.
+- The exhaustive migration inventory in README is checked against the actual `1.4.0` tag.
+
+Run `unity mcp --project-path <absolute-project>` in a disposable project and verify official plus custom commands are discoverable before a release.
+
+## Update policy
+
+Update README, this file, release contract tests, and CHANGELOG whenever a version pin, supported Unity line, command/resource/prompt name, setup behavior, or companion contract changes.

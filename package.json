@@ -3,7 +3,6 @@
   "displayName": "MCP Unity Extensions for Unity CLI",
   "author": "CoderGamester",
   "version": "2.0.0",
-  "mcpname": "io.github.codergamester/mcp-unity",
   "unity": "6000.0",
   "license": "MIT",
   "description": "MCP Unity Extensions for Unity CLI adds focused, typed Pipeline commands for Unity Editor authoring workflows.",

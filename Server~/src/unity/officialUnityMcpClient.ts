@@ -236,7 +236,6 @@ function isTransportInterruption(error: unknown): boolean {
 }
 
 interface UnitySdkTransport {
-  readonly pid?: number | null;
   close(): Promise<void>;
 }
 
@@ -261,15 +260,15 @@ export interface OfficialUnitySessionDependencies {
   createClient(): UnitySdkClient;
   sdkCloseGraceMs?: number;
   transportCloseTimeoutMs?: number;
-  processExitTimeoutMs?: number;
 }
 
 const INITIALIZE_TIMEOUT_MS = 10_000;
 // StdioClientTransport uses two successive 2-second graceful/SIGTERM windows.
 // Let both finish so its unref'ed timers expire before forced cleanup begins.
 const SDK_CLOSE_GRACE_MS = 4_250;
-const TRANSPORT_CLOSE_TIMEOUT_MS = 1_000;
-const PROCESS_EXIT_TIMEOUT_MS = 750;
+// A direct StdioClientTransport.close() fallback needs the same complete
+// graceful/SIGTERM sequence; the transport retains its owned ChildProcess handle.
+const TRANSPORT_CLOSE_TIMEOUT_MS = 4_250;
 
 const DEFAULT_SESSION_DEPENDENCIES: OfficialUnitySessionDependencies = {
   createTransport: (options) =>
@@ -336,8 +335,6 @@ export function createOfficialUnitySessionStart(
           dependencies.sdkCloseGraceMs ?? SDK_CLOSE_GRACE_MS,
         transportCloseTimeoutMs:
           dependencies.transportCloseTimeoutMs ?? TRANSPORT_CLOSE_TIMEOUT_MS,
-        processExitTimeoutMs:
-          dependencies.processExitTimeoutMs ?? PROCESS_EXIT_TIMEOUT_MS,
       });
       return teardownPromise;
     },
@@ -347,7 +344,6 @@ export function createOfficialUnitySessionStart(
 interface TeardownDeadlines {
   sdkCloseGraceMs: number;
   transportCloseTimeoutMs: number;
-  processExitTimeoutMs: number;
 }
 
 async function teardownSdkSession(
@@ -355,34 +351,25 @@ async function teardownSdkSession(
   transport: UnitySdkTransport,
   deadlines: TeardownDeadlines,
 ): Promise<void> {
-  const childPid = transport.pid ?? null;
   const clientClose = invokeClose(() => client.close());
   const clientResult = await settleWithin(clientClose, deadlines.sdkCloseGraceMs);
 
-  if (clientResult.status !== 'fulfilled') {
-    const transportClose = invokeClose(() => transport.close());
-    const transportResult = await settleWithin(
-      transportClose,
-      deadlines.transportCloseTimeoutMs,
-    );
-    if (transportResult.status === 'timed-out') {
-      forceKill(childPid);
-      await requireProcessExit(childPid, deadlines.processExitTimeoutMs);
-      throw new Error(
-        `Unity CLI transport teardown exceeded ${deadlines.transportCloseTimeoutMs}ms.`,
-      );
-    }
-    if (transportResult.status === 'rejected') {
-      forceKill(childPid);
-      await requireProcessExit(childPid, deadlines.processExitTimeoutMs);
-      throw transportResult.reason;
-    }
-  }
+  if (clientResult.status === 'fulfilled') return;
 
-  if (isProcessAlive(childPid)) {
-    forceKill(childPid);
+  const transportClose = invokeClose(() => transport.close());
+  const transportResult = await settleWithin(
+    transportClose,
+    deadlines.transportCloseTimeoutMs,
+  );
+  if (transportResult.status === 'fulfilled') return;
+  if (transportResult.status === 'timed-out') {
+    throw new Error(
+      `Unity CLI transport teardown timed out after ${deadlines.transportCloseTimeoutMs}ms.`,
+    );
   }
-  await requireProcessExit(childPid, deadlines.processExitTimeoutMs);
+  throw new Error(
+    `Unity CLI transport teardown failed: ${errorMessage(transportResult.reason)}`,
+  );
 }
 
 type Settlement =
@@ -421,37 +408,6 @@ function settleWithin(
   });
 }
 
-function forceKill(pid: number | null): void {
-  if (!isProcessAlive(pid)) return;
-  try {
-    process.kill(pid as number, 'SIGKILL');
-  } catch {
-    // The process exited between the liveness check and the signal.
-  }
-}
-
-async function requireProcessExit(
-  pid: number | null,
-  timeoutMs: number,
-): Promise<void> {
-  if (!isProcessAlive(pid)) return;
-  const deadline = Date.now() + Math.max(0, timeoutMs);
-  while (isProcessAlive(pid) && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  if (isProcessAlive(pid)) {
-    throw new Error(
-      `Unity CLI child process ${pid} did not exit within ${timeoutMs}ms.`,
-    );
-  }
-}
-
-function isProcessAlive(pid: number | null): boolean {
-  if (pid === null || !Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -1,6 +1,5 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { jest } from '@jest/globals';
 import {
   createOfficialUnitySessionStart,
@@ -448,7 +447,9 @@ describe('official Unity SDK session ownership', () => {
       close: jest.fn(() => new Promise<void>(() => undefined)),
     };
     const transport = {
-      pid: null,
+      get pid(): never {
+        throw new Error('teardown must not read a raw PID');
+      },
       close: jest.fn(() => transportClose.promise),
     };
     const start = createOfficialUnitySessionStart(
@@ -458,7 +459,6 @@ describe('official Unity SDK session ownership', () => {
         createTransport: () => transport,
         sdkCloseGraceMs: 10,
         transportCloseTimeoutMs: 100,
-        processExitTimeoutMs: 10,
       },
     );
     await start.ready;
@@ -478,53 +478,111 @@ describe('official Unity SDK session ownership', () => {
     expect(closeSettled).toBe(true);
   });
 
+  test('reports an actionable error when owned transport cleanup rejects', async () => {
+    const start = createOfficialUnitySessionStart(
+      { cliPath: '/opt/unity', projectPath: '/projects/game' },
+      {
+        createClient: () => ({
+          connect: jest.fn(async () => undefined),
+          callTool: jest.fn(),
+          close: jest.fn(async () => {
+            throw new Error('SDK close failed');
+          }),
+        }),
+        createTransport: () => ({
+          close: jest.fn(async () => {
+            throw new Error('owned child cleanup failed');
+          }),
+        }),
+        sdkCloseGraceMs: 10,
+        transportCloseTimeoutMs: 10,
+      },
+    );
+    await start.ready;
+
+    await expect(start.close()).rejects.toThrow(
+      'Unity CLI transport teardown failed: owned child cleanup failed',
+    );
+  });
+
+  test('reports an actionable error when owned transport cleanup times out', async () => {
+    const start = createOfficialUnitySessionStart(
+      { cliPath: '/opt/unity', projectPath: '/projects/game' },
+      {
+        createClient: () => ({
+          connect: jest.fn(async () => undefined),
+          callTool: jest.fn(),
+          close: jest.fn(() => new Promise<void>(() => undefined)),
+        }),
+        createTransport: () => ({
+          close: jest.fn(() => new Promise<void>(() => undefined)),
+        }),
+        sdkCloseGraceMs: 5,
+        transportCloseTimeoutMs: 10,
+      },
+    );
+    await start.ready;
+
+    await expect(start.close()).rejects.toThrow(
+      'Unity CLI transport teardown timed out after 10ms',
+    );
+  });
+
   const posixTest = process.platform === 'win32' ? test.skip : test;
   posixTest(
-    'kills a real stubborn CLI child before teardown reports completion',
+    'awaits transport-owned cleanup of a real stubborn child close event',
     async () => {
-      const fixtureDirectory = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'mcp-unity-stubborn-cli-'),
+      const child = spawn(
+        process.execPath,
+        [
+          '-e',
+          "process.on('SIGTERM', () => {}); process.stdout.write('ready\\n'); setInterval(() => {}, 1000);",
+        ],
+        { stdio: ['ignore', 'pipe', 'ignore'] },
       );
-      const executable = path.join(fixtureDirectory, 'unity-stubborn');
-      const pidFile = path.join(fixtureDirectory, 'stubborn.pid');
-      fs.writeFileSync(
-        executable,
-        `#!/usr/bin/env node
-const fs = require('node:fs');
-const path = require('node:path');
-const projectIndex = process.argv.indexOf('--project-path');
-const projectPath = process.argv[projectIndex + 1];
-fs.writeFileSync(path.join(projectPath, 'stubborn.pid'), String(process.pid));
-process.on('SIGTERM', () => {});
-process.stdin.resume();
-setInterval(() => {}, 1000);
-`,
-        { mode: 0o755 },
-      );
-
-      const start = createOfficialUnitySessionStart({
-        cliPath: executable,
-        projectPath: fixtureDirectory,
-      });
-      const ready = start.ready.catch((error: unknown) => error);
-      try {
-        const deadline = Date.now() + 2000;
-        while (!fs.existsSync(pidFile) && Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
+      await once(child, 'spawn');
+      await once(child.stdout!, 'data');
+      const childClosed = once(child, 'close');
+      const transportClose = jest.fn(async () => {
+        child.kill('SIGTERM');
+        const force = setTimeout(() => child.kill('SIGKILL'), 50);
+        try {
+          await childClosed;
+        } finally {
+          clearTimeout(force);
         }
-        expect(fs.existsSync(pidFile)).toBe(true);
-        const childPid = Number(fs.readFileSync(pidFile, 'utf8'));
-
+      });
+      const client = {
+        connect: jest.fn(async () => undefined),
+        callTool: jest.fn(),
+        close: jest.fn(() => new Promise<void>(() => undefined)),
+      };
+      const start = createOfficialUnitySessionStart(
+        { cliPath: '/unused/unity', projectPath: '/projects/game' },
+        {
+          createClient: () => client,
+          createTransport: () => ({ close: transportClose }),
+          sdkCloseGraceMs: 10,
+          transportCloseTimeoutMs: 1000,
+        },
+      );
+      await start.ready;
+      try {
+        const closeStartedAt = Date.now();
         await expect(
-          completesWithin(start.close().then(() => 'closed'), 6000),
+          completesWithin(start.close().then(() => 'closed'), 1500),
         ).resolves.toBe('closed');
-        await expect(ready).resolves.toBeInstanceOf(Error);
-        expect(() => process.kill(childPid, 0)).toThrow();
+        expect(Date.now() - closeStartedAt).toBeGreaterThanOrEqual(40);
+        expect(transportClose).toHaveBeenCalledTimes(1);
+        expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
       } finally {
         await start.close();
-        fs.rmSync(fixtureDirectory, { recursive: true, force: true });
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL');
+          await childClosed;
+        }
       }
     },
-    10_000,
+    3000,
   );
 });

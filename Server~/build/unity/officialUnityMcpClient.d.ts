@@ -40,7 +40,6 @@ export declare class OfficialUnityMcpClient {
     private assertOpen;
 }
 interface UnitySdkTransport {
-    readonly pid?: number | null;
     close(): Promise<void>;
 }
 interface UnitySdkClient {
@@ -60,7 +59,6 @@ export interface OfficialUnitySessionDependencies {
     createClient(): UnitySdkClient;
     sdkCloseGraceMs?: number;
     transportCloseTimeoutMs?: number;
-    processExitTimeoutMs?: number;
 }
 export declare function createOfficialUnitySessionStart(options: OfficialUnitySessionOptions, dependencies?: OfficialUnitySessionDependencies): OfficialUnitySessionStart;
 export {};

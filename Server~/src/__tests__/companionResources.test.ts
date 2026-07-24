@@ -265,6 +265,69 @@ describe('companion resource mappings', () => {
     );
   });
 
+  test('bounds the aggregate serialized hierarchy payload at 512 KiB', async () => {
+    const escapedName = '"\n\\'.repeat(100);
+    const escapedPath = '"\n\\'.repeat(400);
+    const escapedComponent = '"\n\\'.repeat(60);
+    const components = Array.from(
+      { length: 32 },
+      () => escapedComponent,
+    );
+    const roots = Array.from({ length: 2000 }, (_, index) => ({
+      name: `${index}-${escapedName}`,
+      hierarchyPath: `${escapedPath}/${index}`,
+      instanceId: index,
+      activeSelf: true,
+      components,
+      children: [],
+    }));
+    const resources = new CompanionResourceService(
+      clientWith(async () =>
+        toolResult({
+          sceneName: escapedName,
+          scenePath: escapedPath,
+          isDirty: false,
+          isActive: true,
+          roots,
+        }),
+      ),
+    );
+
+    const result = await resources.read(
+      'unity://scenes-hierarchy?max_nodes=2000',
+    );
+    const serializedBytes = Buffer.byteLength(JSON.stringify(result.payload));
+    const truncation = result.payload.truncation as Record<string, unknown>;
+
+    expect(serializedBytes).toBeLessThanOrEqual(512 * 1024);
+    expect(truncation).toMatchObject({
+      truncated: true,
+      maxNodes: 2000,
+      totalNodesKnown: true,
+      totalNodes: 2000,
+      payloadBudgetReached: true,
+      payloadBudgetBytes: 512 * 1024,
+      projectedBytes: serializedBytes,
+    });
+    expect(truncation.returnedNodes as number).toBeLessThan(2000);
+    expect(truncation.omittedAtBudgetNodes).toBe(
+      2000 - (truncation.returnedNodes as number),
+    );
+    expect(truncation.omittedAtBudgetComponents as number).toBeGreaterThan(0);
+    expect(truncation.rootsTruncated).toBe(true);
+    expect((result.payload.roots as unknown[]).length).toBe(
+      truncation.returnedNodes,
+    );
+    expect(
+      (result.payload.roots as Array<Record<string, unknown>>).some((node) => {
+        const projection = node.projection as
+          | { components?: { payloadBudgetReached?: boolean } }
+          | undefined;
+        return projection?.components?.payloadBudgetReached === true;
+      }),
+    ).toBe(true);
+  });
+
   test('maps a GameObject target to bounded inspect_gameobject defaults', async () => {
     const client = clientWith(async () => toolResult({ name: 'Player' }));
     const resources = new CompanionResourceService(client);

@@ -10,6 +10,24 @@ import {
   runUnityCliVersion,
 } from '../cli/companionCli.js';
 
+async function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 describe('companion arguments', () => {
   const projectPath = path.resolve('/tmp', 'unity-project');
 
@@ -188,7 +206,7 @@ describe('Unity CLI resolution and compatibility', () => {
     };
 
     await expect(
-      Promise.race([
+      withTimeout(
         runUnityCliVersion(
           '/opt/unity',
           ['--version'],
@@ -198,13 +216,9 @@ describe('Unity CLI resolution and compatibility', () => {
             return fakeChild;
           }) as never,
         ),
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error('cancelled version invocation did not settle')),
-            100,
-          ),
-        ),
-      ]),
+        100,
+        'cancelled version invocation did not settle',
+      ),
     ).rejects.toThrow('cancelled');
     expect(fakeChild.kill).toHaveBeenCalled();
   });
@@ -232,15 +246,11 @@ process.stdout.write('1.0.0-beta.2\\n');
       const startedAt = Date.now();
       try {
         await expect(
-          Promise.race([
+          withTimeout(
             runUnityCliVersion(executable, ['--version'], { timeoutMs: 100 }),
-            new Promise((_, reject) =>
-              setTimeout(
-                () => reject(new Error('version invocation did not settle')),
-                1000,
-              ),
-            ),
-          ]),
+            1000,
+            'version invocation did not settle',
+          ),
         ).rejects.toThrow('timed out');
         expect(Date.now() - startedAt).toBeLessThan(1000);
       } finally {

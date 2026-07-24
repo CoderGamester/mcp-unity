@@ -22,6 +22,12 @@ const INSTANCE_ID_MAX_LENGTH = 128;
 const COMPONENT_MAX_COUNT = 32;
 const COMPONENT_SCAN_LIMIT = 128;
 const COMPONENT_NAME_MAX_LENGTH = 128;
+// Keep hierarchy resources comfortably below common MCP host payload limits.
+// The content allowance reserves fixed envelope/metadata space plus worst-case
+// post-projection omission markers for every returned node.
+const HIERARCHY_PAYLOAD_BUDGET_BYTES = 512 * 1024;
+const HIERARCHY_ENVELOPE_RESERVE_BYTES = 16 * 1024;
+const HIERARCHY_DYNAMIC_MARKER_RESERVE_PER_NODE = 128;
 
 export class CompanionResourceService {
   constructor(private readonly client: UnityReadClient) {}
@@ -212,10 +218,20 @@ function truncateHierarchy(
   const roots: HierarchyOutputNode[] = [];
   const frames: HierarchyTraversalFrame[] = [];
   const omissionOwners = new Set<HierarchyOutputNode>();
+  const projectedContentBudget = Math.max(
+    0,
+    HIERARCHY_PAYLOAD_BUDGET_BYTES -
+      HIERARCHY_ENVELOPE_RESERVE_BYTES -
+      maxNodes * HIERARCHY_DYNAMIC_MARKER_RESERVE_PER_NODE,
+  );
   let rootIndex = 0;
   let visitedNodes = 0;
   let returnedNodes = 0;
   let rootsTruncated = false;
+  let projectedContentBytes = 0;
+  let payloadBudgetReached = false;
+  let omittedAtBudgetNodes = 0;
+  let omittedAtBudgetComponents = 0;
 
   while (visitedNodes < traversalBudget) {
     let source: unknown;
@@ -245,15 +261,41 @@ function truncateHierarchy(
 
     let output: HierarchyOutputNode | undefined;
     let omissionOwner: HierarchyOutputNode | undefined;
-    if (returnedNodes < maxNodes && (isRoot || parentOutput !== undefined)) {
-      output = projectHierarchyNode(source);
-      returnedNodes++;
-      if (parentOutput) {
-        parentOutput.children.push(output);
+    let countedBudgetOmission = false;
+    const outputEligible =
+      returnedNodes < maxNodes && (isRoot || parentOutput !== undefined);
+    if (outputEligible && !payloadBudgetReached) {
+      const destination = parentOutput?.children ?? roots;
+      const separatorBytes = destination.length > 0 ? 1 : 0;
+      const remainingBytes =
+        projectedContentBudget - projectedContentBytes - separatorBytes;
+      const candidate = projectHierarchyNode(source);
+      const fitted = fitProjectedNodeToBudget(candidate, remainingBytes);
+      if (fitted.output) {
+        output = fitted.output;
+        returnedNodes++;
+        projectedContentBytes += separatorBytes + fitted.serializedBytes;
+        omittedAtBudgetComponents += fitted.omittedAtBudgetComponents;
+        destination.push(output);
+        if (fitted.payloadBudgetReached) {
+          payloadBudgetReached = true;
+        }
       } else {
-        roots.push(output);
+        payloadBudgetReached = true;
+        omittedAtBudgetNodes++;
+        omittedAtBudgetComponents += sourceComponentCount(source);
+        countedBudgetOmission = true;
       }
-    } else {
+    }
+    if (!output) {
+      if (
+        payloadBudgetReached &&
+        !countedBudgetOmission &&
+        isRecord(source)
+      ) {
+        omittedAtBudgetNodes++;
+        omittedAtBudgetComponents += sourceComponentCount(source);
+      }
       omissionOwner = parentOutput ?? inheritedOmissionOwner;
       if (omissionOwner) {
         omissionOwner.childrenTruncated = true;
@@ -302,9 +344,9 @@ function truncateHierarchy(
     }
   }
 
-  const truncation = totalNodesKnown
+  const truncation: Record<string, unknown> = totalNodesKnown
     ? {
-        truncated: returnedNodes < visitedNodes,
+        truncated: returnedNodes < visitedNodes || payloadBudgetReached,
         maxNodes,
         traversalBudget,
         visitedNodes,
@@ -326,11 +368,21 @@ function truncateHierarchy(
         rootsTruncated,
       };
 
-  return {
+  Object.assign(truncation, {
+    payloadBudgetReached,
+    payloadBudgetBytes: HIERARCHY_PAYLOAD_BUDGET_BYTES,
+    projectedBytes: 0,
+    omittedAtBudgetNodes,
+    omittedAtBudgetComponents,
+  });
+
+  const result: Record<string, unknown> = {
     ...projectHierarchyMetadata(hierarchy),
     roots,
     truncation,
   };
+  stabilizeProjectedByteCount(result, truncation);
+  return result;
 }
 
 interface HierarchyOutputNode extends Record<string, unknown> {
@@ -345,6 +397,109 @@ interface HierarchyTraversalFrame {
   nextChild: number;
   output?: HierarchyOutputNode;
   omissionOwner?: HierarchyOutputNode;
+}
+
+interface FittedHierarchyNode {
+  output?: HierarchyOutputNode;
+  serializedBytes: number;
+  payloadBudgetReached: boolean;
+  omittedAtBudgetComponents: number;
+}
+
+function fitProjectedNodeToBudget(
+  candidate: HierarchyOutputNode,
+  maxBytes: number,
+): FittedHierarchyNode {
+  let serializedBytes = jsonBytes(candidate);
+  if (serializedBytes <= maxBytes) {
+    return {
+      output: candidate,
+      serializedBytes,
+      payloadBudgetReached: false,
+      omittedAtBudgetComponents: 0,
+    };
+  }
+
+  const components = Array.isArray(candidate.components)
+    ? candidate.components as string[]
+    : undefined;
+  if (!components || components.length === 0) {
+    return {
+      serializedBytes,
+      payloadBudgetReached: true,
+      omittedAtBudgetComponents: 0,
+    };
+  }
+
+  const initialReturnedCount = components.length;
+  while (components.length > 0) {
+    components.pop();
+    markComponentsOmittedAtBudget(
+      candidate,
+      initialReturnedCount - components.length,
+      initialReturnedCount,
+    );
+    serializedBytes = jsonBytes(candidate);
+    if (serializedBytes <= maxBytes) {
+      return {
+        output: candidate,
+        serializedBytes,
+        payloadBudgetReached: true,
+        omittedAtBudgetComponents:
+          initialReturnedCount - components.length,
+      };
+    }
+  }
+
+  return {
+    serializedBytes,
+    payloadBudgetReached: true,
+    omittedAtBudgetComponents: initialReturnedCount,
+  };
+}
+
+function markComponentsOmittedAtBudget(
+  node: HierarchyOutputNode,
+  omittedAtBudgetCount: number,
+  initialReturnedCount: number,
+): void {
+  const projection = isRecord(node.projection)
+    ? node.projection as ProjectionNotice
+    : {};
+  node.projection = projection;
+  const existing = projection.components;
+  const returnedCount = initialReturnedCount - omittedAtBudgetCount;
+  projection.components = {
+    sourceCount: existing?.sourceCount ?? initialReturnedCount,
+    scannedCount: existing?.scannedCount ?? initialReturnedCount,
+    returnedCount,
+    omittedCount:
+      (existing?.sourceCount ?? initialReturnedCount) - returnedCount,
+    invalidScanned: existing?.invalidScanned ?? 0,
+    namesTruncated: existing?.namesTruncated ?? 0,
+    scanTruncated: existing?.scanTruncated ?? false,
+    payloadBudgetReached: true,
+    omittedAtBudgetCount,
+  };
+}
+
+function sourceComponentCount(source: Record<string, unknown>): number {
+  return Array.isArray(source.components) ? source.components.length : 0;
+}
+
+function stabilizeProjectedByteCount(
+  result: Record<string, unknown>,
+  truncation: Record<string, unknown>,
+): void {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const projectedBytes = jsonBytes(result);
+    if (truncation.projectedBytes === projectedBytes) return;
+    truncation.projectedBytes = projectedBytes;
+  }
+}
+
+function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value));
 }
 
 function projectHierarchyNode(
@@ -421,6 +576,8 @@ interface ProjectionNotice {
     invalidScanned: number;
     namesTruncated: number;
     scanTruncated: boolean;
+    payloadBudgetReached?: boolean;
+    omittedAtBudgetCount?: number;
   };
 }
 

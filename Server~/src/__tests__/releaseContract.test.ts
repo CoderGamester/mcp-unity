@@ -227,9 +227,7 @@ describe('2.0 release contract', () => {
     if (!fs.existsSync(legacySnapshotPath)) return;
 
     const snapshotBytes = fs.readFileSync(legacySnapshotPath);
-    expect(createHash('sha256').update(snapshotBytes).digest('hex')).toBe(
-      legacySnapshotSha256,
-    );
+    expect(fixtureDigest(snapshotBytes)).toBe(legacySnapshotSha256);
     const snapshot = JSON.parse(snapshotBytes.toString('utf8')) as LegacySnapshot;
     expect(snapshot).toMatchObject({
       schemaVersion: 1,
@@ -339,6 +337,17 @@ describe('2.0 release contract', () => {
         }
       }
     }
+  });
+
+  test('normalizes fixture line endings without hiding content changes', () => {
+    const lf = '{\n  "schemaVersion": 1,\n  "value": "legacy"\n}\n';
+    const crlf = lf.replace(/\n/g, '\r\n');
+    const cr = lf.replace(/\n/g, '\r');
+    const changed = lf.replace('"legacy"', '"changed"');
+
+    expect(fixtureDigest(crlf)).toBe(fixtureDigest(lf));
+    expect(fixtureDigest(cr)).toBe(fixtureDigest(lf));
+    expect(fixtureDigest(changed)).not.toBe(fixtureDigest(lf));
   });
 
   test('maps every 1.4.0 catalog and configuration concept', () => {
@@ -630,7 +639,7 @@ describe('2.0 release contract', () => {
       fs.symlinkSync(
         path.join(serverRoot, 'node_modules'),
         path.join(packageRoot, 'Server~', 'node_modules'),
-        'dir',
+        packageCopyLinkType(),
       );
 
       expect(gitObjectExistsAt(packageRoot, '1.4.0^{commit}')).toBe(false);
@@ -664,6 +673,13 @@ describe('2.0 release contract', () => {
     } finally {
       fs.rmSync(consumerRoot, { recursive: true, force: true });
     }
+  });
+
+  test('uses an absolute package-copy target and a Windows-safe junction', () => {
+    expect(path.isAbsolute(path.join(serverRoot, 'node_modules'))).toBe(true);
+    expect(packageCopyLinkType('win32')).toBe('junction');
+    expect(packageCopyLinkType('darwin')).toBe('dir');
+    expect(packageCopyLinkType('linux')).toBe('dir');
   });
 
   test('marks untranslated readmes as legacy documentation', () => {
@@ -720,6 +736,17 @@ function ownsGitRepository(packageRoot: string): boolean {
   } catch {
     return false;
   }
+}
+
+function fixtureDigest(source: string | Buffer): string {
+  const normalized = source.toString().replace(/\r\n?/g, '\n');
+  return createHash('sha256').update(normalized, 'utf8').digest('hex');
+}
+
+function packageCopyLinkType(
+  platform: NodeJS.Platform = process.platform,
+): 'dir' | 'junction' {
+  return platform === 'win32' ? 'junction' : 'dir';
 }
 
 function findForbiddenLegacyMarkers(source: string): string[] {

@@ -1,5 +1,7 @@
 # MCP Unity Editor (Game Engine)
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2FCoderGamester%2Fmcp-unity.svg)](https://mcptoplist.com/server/glama%2FCoderGamester%2Fmcp-unity)
+
 [![](https://badge.mcpx.dev?status=on 'MCP Enabled')](https://modelcontextprotocol.io/introduction)
 [![](https://img.shields.io/badge/Unity-000000?style=flat&logo=unity&logoColor=white 'Unity')](https://unity.com/releases/editor/archive)
 [![](https://img.shields.io/badge/Node.js-339933?style=flat&logo=nodedotjs&logoColor=white 'Node.js')](https://nodejs.org/en/download/)

@@ -487,9 +487,18 @@ export class UnityConnection extends EventEmitter {
     // Remove all event handlers before terminating
     socket.onopen = null;
     socket.onmessage = null;
-    socket.onerror = null;
     socket.onclose = null;
     socket.removeAllListeners('pong');
+
+    // Keep a no-op 'error' listener attached across terminate().
+    //
+    // ws@8 terminate() on a socket still in CONNECTING state calls abortHandshake(),
+    // which builds the Error synchronously but emits it on process.nextTick - i.e.
+    // OUTSIDE the try/catch below. With no 'error' listener the EventEmitter rethrows,
+    // index.ts's uncaughtException handler does not match EPIPE/EOF/ERR_USE_AFTER_CLOSE
+    // (the error has no .code at all), and the process exits 1 - killing the server on
+    // the very first connect timeout, before any reconnect attempt can run.
+    socket.onerror = () => { /* teardown is expected to fail; swallow */ };
 
     try {
       // Always terminate immediately — no graceful close handshake.

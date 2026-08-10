@@ -42,6 +42,10 @@ namespace McpUnity.Unity
         private const int DelayedStartMaxAttempts = 10;
         private static readonly double[] DelayedStartRetryDelaySeconds = { 0.25d, 0.5d, 1d, 2d, 3d, 5d };
 
+        // Connect + read budget for the post-start liveness probe. Generous enough not to trip on a
+        // busy editor, short enough that the probe thread is always gone long before the next start.
+        private const int LivenessProbeTimeoutMs = 2000;
+
         private WebSocketServer _webSocketServer;
         private CancellationTokenSource _cts;
         private TestRunnerService _testRunnerService;
@@ -53,6 +57,12 @@ namespace McpUnity.Unity
         private string _delayedStartReason;
         private int _connectionGeneration;
         private int _activeConnectionGeneration;
+
+        // Cancelled by StopServer() so a liveness probe can never outlive the server generation
+        // it was started for. Deliberately never Disposed: the probe thread may still poll the
+        // token after replacement, a CTS without a timer holds no critical resources, and churn
+        // is bounded at one per server start.
+        private CancellationTokenSource _livenessProbeCancellation;
 
         private enum StartServerResult
         {
@@ -160,6 +170,7 @@ namespace McpUnity.Unity
         {
             CancelScheduledStart();
             _activeConnectionGeneration = 0;
+            _livenessProbeCancellation?.Cancel();
             McpBackgroundTick.Stop();
 
             if (_webSocketServer == null)
@@ -314,6 +325,16 @@ namespace McpUnity.Unity
                 _activeConnectionGeneration = connectionGeneration;
                 McpBackgroundTick.Start();
                 McpLogger.LogInfo($"WebSocket server started successfully on {host}:{McpUnitySettings.Instance.Port}.");
+
+                // Start() succeeding only proves the bind succeeded, not that the port is being
+                // serviced. Confirm the latter out-of-band (see the method's remarks). The probe
+                // carries this start's generation and a token cancelled on StopServer(), so a
+                // probe from a replaced server can never report against its successor.
+                _livenessProbeCancellation?.Cancel();
+                _livenessProbeCancellation = new CancellationTokenSource();
+                VerifyServerIsActuallyServing(host, McpUnitySettings.Instance.Port,
+                    connectionGeneration, _livenessProbeCancellation.Token);
+
                 return StartServerResult.Started;
             }
             catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
@@ -344,6 +365,170 @@ namespace McpUnity.Unity
             int normalizedAttempt = Math.Max(attempt, 1);
             int delayIndex = Math.Min(normalizedAttempt - 1, DelayedStartRetryDelaySeconds.Length - 1);
             return DelayedStartRetryDelaySeconds[delayIndex];
+        }
+
+        /// <summary>
+        /// Confirms out-of-band that the port just bound is actually being serviced.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A successful <c>WebSocketServer.Start()</c> proves only that the bind succeeded. On
+        /// Windows it is possible to end up bound to a port that then accepts TCP connections and
+        /// never answers them, so the editor reports a healthy server while every client hangs.
+        /// Reported as issue #141 ("Port N is already in use", cleared only by restarting Unity).
+        /// </para>
+        /// <para>
+        /// Silence with the connection held open is the distinguishing signature: a healthy server
+        /// either answers or closes the socket. So "data received" AND "peer closed" both count as
+        /// alive, and only a read TIMEOUT counts as dead - <see cref="IOException"/> alone does
+        /// not: <c>NetworkStream.Read</c> also raises it for connection resets and aborted
+        /// sockets (an ordinary shutdown/restart race), so the inner
+        /// <see cref="SocketException"/> is inspected and only <see cref="SocketError.TimedOut"/>
+        /// triggers the dead-server report. Other socket failures stay silent, matching the
+        /// no-connect case below: ambiguous evidence never raises the severe diagnostic.
+        /// </para>
+        /// <para>
+        /// The probe is tied to the server generation that launched it: it carries that
+        /// generation plus a token cancelled by <c>StopServer()</c>, and re-checks both before
+        /// every side effect - so a probe that slept or blocked in <c>Read</c> across a server
+        /// replacement exits silently instead of reporting a stale verdict against a healthy
+        /// successor.
+        /// </para>
+        /// <para>
+        /// This only DETECTS and reports the condition; it deliberately does not try to repair it.
+        /// The message therefore describes what was observed rather than asserting a cause.
+        /// </para>
+        /// <para>
+        /// Every resolved address must be tried. Binding "localhost" can yield an IPv6-only
+        /// listener (::1), against which 127.0.0.1 is refused - so a default <c>new TcpClient()</c>
+        /// (which is IPv4) cannot reach a perfectly healthy server and would false-alarm.
+        /// </para>
+        /// <para>
+        /// Runs off the main thread, and uses a deliberately non-existent path so it can never
+        /// create a /McpUnity session. Only LogWarning/LogError are called from the worker.
+        /// </para>
+        /// </remarks>
+        private void VerifyServerIsActuallyServing(string host, int port, int connectionGeneration,
+            CancellationToken cancellation)
+        {
+            var probeHost = host == "0.0.0.0" ? "localhost" : host;
+
+            // True while the server generation this probe was launched for is still the active
+            // one and no stop has been requested. Checked before every side effect: a stale
+            // probe must exit silently, never report against a replacement server.
+            bool ProbeIsCurrent() =>
+                !cancellation.IsCancellationRequested &&
+                Volatile.Read(ref _activeConnectionGeneration) == connectionGeneration;
+
+            var probe = new Thread(() =>
+            {
+                try
+                {
+                    // Let the accept loop settle; Start() can return marginally early. The wait
+                    // doubles as the cancellation point for a stop during the settle window.
+                    if (cancellation.WaitHandle.WaitOne(250))
+                    {
+                        return;
+                    }
+
+                    System.Net.IPAddress[] addresses;
+                    try
+                    {
+                        addresses = System.Net.Dns.GetHostAddresses(probeHost);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    foreach (var address in addresses)
+                    {
+                        if (!ProbeIsCurrent())
+                        {
+                            return;
+                        }
+
+                        using (var client = new TcpClient(address.AddressFamily))
+                        {
+                            try
+                            {
+                                if (!client.ConnectAsync(address, port).Wait(LivenessProbeTimeoutMs, cancellation))
+                                {
+                                    continue;
+                                }
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                return;
+                            }
+                            catch
+                            {
+                                // Refused/unreachable on this family - try the next address.
+                                continue;
+                            }
+
+                            var stream = client.GetStream();
+                            stream.ReadTimeout = LivenessProbeTimeoutMs;
+
+                            // A healthy websocket-sharp answers "HTTP/1.1 501 Not Implemented" to an
+                            // unknown path and closes, which proves the accept loop is live without
+                            // ever creating a /McpUnity session.
+                            var request = System.Text.Encoding.ASCII.GetBytes(
+                                "GET /__mcp_liveness__ HTTP/1.1\r\n" +
+                                $"Host: {probeHost}:{port}\r\n" +
+                                "Upgrade: websocket\r\n" +
+                                "Connection: Upgrade\r\n" +
+                                "Sec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n" +
+                                "Sec-WebSocket-Version: 13\r\n\r\n");
+                            stream.Write(request, 0, request.Length);
+
+                            var buffer = new byte[64];
+                            try
+                            {
+                                // Returns >0 (answered) or 0 (peer closed) on a live server. A
+                                // throw is NOT proof of death by itself - see the catch below.
+                                stream.Read(buffer, 0, buffer.Length);
+                            }
+                            catch (IOException ex)
+                            {
+                                // Read() raises IOException for more than the timeout: connection
+                                // resets and aborted sockets surface here too, and those are the
+                                // signature of an ordinary shutdown/restart race, not of the
+                                // silent port (which holds the connection OPEN in silence). Only
+                                // the timeout code is the dead-server signal; everything else
+                                // stays silent, like the no-connect case below.
+                                var socketError = (ex.InnerException as SocketException)?.SocketErrorCode;
+                                if (socketError == SocketError.TimedOut && ProbeIsCurrent())
+                                {
+                                    McpLogger.LogError(
+                                        $"MCP bridge is not serving: port {port} accepted a connection but " +
+                                        "returned nothing and did not close it. Clients will hang rather than " +
+                                        "fail. Restarting the server from the Server Window may not clear " +
+                                        "this; restarting the Unity Editor does.");
+                                }
+                            }
+
+                            // One successful connect is a conclusive test either way.
+                            return;
+                        }
+                    }
+
+                    // No address accepted a connection at all. That is ambiguous - the listener may
+                    // still be settling - and the Node bridge's own connect is the authoritative
+                    // test, so stay silent rather than false-alarm.
+                }
+                catch (Exception ex)
+                {
+                    if (ProbeIsCurrent())
+                    {
+                        McpLogger.LogWarning($"MCP liveness probe failed to run: {ex.Message}");
+                    }
+                }
+            });
+
+            probe.IsBackground = true;
+            probe.Name = "McpUnity Liveness Probe";
+            probe.Start();
         }
 
         private void ScheduleStartServer(bool requireAutoStart, string reason, int attempt = 1)

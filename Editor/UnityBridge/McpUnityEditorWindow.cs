@@ -93,7 +93,7 @@ namespace McpUnity.Unity
             // Port configuration
             EditorGUILayout.BeginHorizontal();
             int newPort = EditorGUILayout.IntField("Connection Port", settings.Port);
-            if (newPort < 1 || newPort > 65536)
+            if (newPort < 1 || newPort > 65535)
             {
                 newPort = settings.Port;
                 Debug.LogError($"{newPort} is an invalid port number. Please enter a number between 1 and 65535.");
@@ -135,6 +135,20 @@ namespace McpUnity.Unity
                 settings.SaveSettings();
             }
             
+            EditorGUILayout.Space();
+
+            // Batch mode bridge toggle
+            bool allowBatchModeServer = EditorGUILayout.Toggle(
+                new GUIContent(
+                    "Allow Batch Mode Server",
+                    "Allow the WebSocket server to run in Unity -batchmode. Node package installation remains disabled in batch mode. This is intended for persistent headless MCP hosts, not CI builds."),
+                settings.AllowBatchModeServer);
+            if (allowBatchModeServer != settings.AllowBatchModeServer)
+            {
+                settings.AllowBatchModeServer = allowBatchModeServer;
+                settings.SaveSettings();
+            }
+
             EditorGUILayout.Space();
             
             // Allow remote connections toggle

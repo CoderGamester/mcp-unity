@@ -1,13 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
+import { fileURLToPath } from 'url';
 import { Logger } from '../utils/logger.js';
 import { McpUnityError, ErrorType } from '../utils/errors.js';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { UnityConnection, ConnectionState, ConnectionStateChange, UnityConnectionConfig } from './unityConnection.js';
 import { CommandQueue, CommandQueueConfig, CommandQueueStats, QueuedCommand } from './commandQueue.js';
-
-// Top-level constant for the Unity settings JSON path
-const MCP_UNITY_SETTINGS_PATH = path.resolve(process.cwd(), './ProjectSettings/McpUnitySettings.json');
+import { resolveUnityConnectionConfig } from './unityConnectionConfig.js';
 
 interface PendingRequest {
   resolve: (value: any) => void;
@@ -172,20 +169,12 @@ export class McpUnity {
    * Reads our configuration file and sets parameters of the server based on them.
    */
   private async parseAndSetConfig() {
-    const config = await this.readConfigFileAsJson();
-
-    const configPort = config.Port;
-    this.port = configPort ? parseInt(configPort, 10) : 8090;
-    this.logger.info(`Using port: ${this.port} for Unity WebSocket connection`);
-
-    // Check environment variable first, then config file, then default to localhost
-    const configHost = process.env.UNITY_HOST || config.Host;
-    this.host = configHost || 'localhost';
-
-    // Initialize timeout from environment variable (in seconds; it is the same as Cline) or use default (10 seconds)
-    const configTimeout = config.RequestTimeoutSeconds;
-    this.requestTimeout = configTimeout ? parseInt(configTimeout, 10) * 1000 : 10000;
-    this.logger.info(`Using request timeout: ${this.requestTimeout / 1000} seconds`);
+    const config = await resolveUnityConnectionConfig(this.logger, {
+      modulePath: fileURLToPath(import.meta.url)
+    });
+    this.port = config.port;
+    this.host = config.host;
+    this.requestTimeout = config.requestTimeout;
   }
 
   /**
@@ -523,19 +512,4 @@ export class McpUnity {
     };
   }
 
-  /**
-   * Read the McpUnitySettings.json file and return its contents as a JSON object.
-   * @returns a JSON object with the contents of the McpUnitySettings.json file.
-   */
-  private async readConfigFileAsJson(): Promise<any> {
-    const configPath = MCP_UNITY_SETTINGS_PATH;
-    try {
-      const content = await fs.readFile(configPath, 'utf-8');
-      const json = JSON.parse(content);
-      return json;
-    } catch (err) {
-      this.logger.debug(`McpUnitySettings.json not found or unreadable: ${err instanceof Error ? err.message : String(err)}`);
-      return {};
-    }
-  }
 }

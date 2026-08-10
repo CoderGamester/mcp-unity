@@ -41,6 +41,7 @@ namespace McpUnity.Unity
 
         private const int DelayedStartMaxAttempts = 10;
         private static readonly double[] DelayedStartRetryDelaySeconds = { 0.25d, 0.5d, 1d, 2d, 3d, 5d };
+        private const string AllowBatchModeEnvironmentVariable = "MCP_UNITY_ALLOW_BATCH_MODE";
 
         // Connect + read budget for the post-start liveness probe. Generous enough not to trip on a
         // busy editor, short enough that the probe thread is always gone long before the next start.
@@ -74,14 +75,13 @@ namespace McpUnity.Unity
         }
 
         /// <summary>
-        /// Singleton instance accessor. Returns null in batch mode.
+        /// Singleton instance accessor. Returns null when batch mode has not explicitly enabled the server.
         /// </summary>
         public static McpUnityServer Instance
         {
             get
             {
-                // Don't create instance in batch mode to avoid hanging builds
-                if (Application.isBatchMode)
+                if (!ShouldRunInCurrentProcess())
                 {
                     return null;
                 }
@@ -254,14 +254,59 @@ namespace McpUnity.Unity
             return connectionGeneration == _activeConnectionGeneration && IsListening;
         }
 
+        private static bool ShouldRunInCurrentProcess()
+        {
+            if (!Application.isBatchMode)
+            {
+                return true;
+            }
+
+            string batchModeOverride = Environment.GetEnvironmentVariable(AllowBatchModeEnvironmentVariable);
+            if (IsEnabledEnvironmentFlag(batchModeOverride))
+            {
+                return true;
+            }
+
+            // Do not instantiate settings in a default batch-mode build: loading settings creates
+            // the file when absent, which would reintroduce initialization side effects in CI.
+            if (!McpUnitySettings.HasPersistedSettings)
+            {
+                return false;
+            }
+
+            return ShouldRunInCurrentProcess(
+                true,
+                McpUnitySettings.Instance.AllowBatchModeServer,
+                batchModeOverride);
+        }
+
+        /// <summary>
+        /// Determines whether the bridge is allowed to run in the current Unity process.
+        /// Batch mode remains disabled by default so cloud builds and CI keep their existing behavior.
+        /// A persistent headless host can opt in via project settings or MCP_UNITY_ALLOW_BATCH_MODE=true.
+        /// </summary>
+        private static bool ShouldRunInCurrentProcess(bool isBatchMode, bool allowBatchModeServer, string batchModeOverride)
+        {
+            if (!isBatchMode)
+            {
+                return true;
+            }
+
+            return allowBatchModeServer || IsEnabledEnvironmentFlag(batchModeOverride);
+        }
+
+        private static bool IsEnabledEnvironmentFlag(string value)
+        {
+            return string.Equals(value?.Trim(), "true", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value?.Trim(), "1", StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Private constructor to enforce singleton pattern
         /// </summary>
         private McpUnityServer()
         {
-            // Skip all initialization in batch mode (Unity Cloud Build, CI, headless builds)
-            // The npm install/build commands can hang indefinitely without node.js available
-            if (Application.isBatchMode)
+            if (!ShouldRunInCurrentProcess())
             {
                 McpLogger.LogInfo("MCP Unity server disabled: Running in batch mode (Unity Cloud Build or CI)");
                 return;
@@ -279,7 +324,16 @@ namespace McpUnity.Unity
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
 
-            InstallServer();
+            // npm install/build is what made batch-mode builds hang. A headless MCP host only
+            // needs the Unity WebSocket server, so it must provide a prebuilt Node bridge itself.
+            if (!Application.isBatchMode)
+            {
+                InstallServer();
+            }
+            else
+            {
+                McpLogger.LogInfo("Skipping MCP Node server installation in batch mode.");
+            }
             InitializeServices();
             RegisterResources();
             RegisterTools();
@@ -615,7 +669,7 @@ namespace McpUnity.Unity
             _delayedStartEarliestTime = 0;
             _delayedStartReason = null;
 
-            if (Application.isBatchMode || _instance != this)
+            if (!ShouldRunInCurrentProcess() || _instance != this)
             {
                 return;
             }
@@ -884,9 +938,7 @@ namespace McpUnity.Unity
         [DidReloadScripts]
         private static void AfterReload()
         {
-            // Skip initialization in batch mode (Unity Cloud Build, CI, headless builds)
-            // This prevents npm commands from hanging the build process
-            if (Application.isBatchMode)
+            if (!ShouldRunInCurrentProcess())
             {
                 return;
             }
@@ -900,7 +952,7 @@ namespace McpUnity.Unity
         /// </summary>
         private static void OnEditorQuitting()
         {
-            if (Application.isBatchMode || _instance == null) return;
+            if (_instance == null) return;
             
             McpLogger.LogInfo("Editor is quitting. Ensuring server is stopped.");
             _instance.Dispose();
@@ -912,7 +964,7 @@ namespace McpUnity.Unity
         /// </summary>
         private static void OnBeforeAssemblyReload()
         {
-            if (Application.isBatchMode || _instance == null) return;
+            if (_instance == null) return;
             
             _instance.StopServer();
         }
@@ -924,7 +976,7 @@ namespace McpUnity.Unity
         /// </summary>
         private static void OnAfterAssemblyReload()
         {
-            if (Application.isBatchMode || _instance == null) return;
+            if (!ShouldRunInCurrentProcess() || _instance == null) return;
             
             if (McpUnitySettings.Instance.AutoStartServer && !_instance.IsListening)
             {
@@ -939,7 +991,7 @@ namespace McpUnity.Unity
         /// <param name="state">The current play mode state change.</param>
         private static void OnPlayModeStateChanged(PlayModeStateChange state)
         {
-            if (Application.isBatchMode || _instance == null) return;
+            if (!ShouldRunInCurrentProcess() || _instance == null) return;
             
             switch (state)
             {

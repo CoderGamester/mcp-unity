@@ -287,9 +287,10 @@ AIクライアントのMCP設定ファイル（例：Claude Desktopのclaude_des
 1. Unityエディターを開く
 2. Tools > MCP Unity > Server Window に移動
 3. "WebSocket Port" の値を希望のポート番号に変更
-4. Unity はシステム環境変数 UNITY_PORT を新しいポート番号に設定
+4. Unity は値を `ProjectSettings/McpUnitySettings.json` に保存
 5. Node.js サーバーを再起動
-6. 再度 "Start Server" をクリックして、Unity Editor の WebSocket を Node.js MCP サーバーに再接続
+
+Node ブリッジはインストール済みパッケージのパスからこの設定ファイルを検出するため、MCP クライアントの作業ディレクトリに依存しません。プロセスごとに上書きするには、たとえば `UNITY_PORT=9001 node build/index.js` のように `UNITY_PORT` を設定します。
 
 ## オプション: タイムアウト設定
 
@@ -299,9 +300,10 @@ AIクライアントのMCP設定ファイル（例：Claude Desktopのclaude_des
 1. Unityエディターを開く  
 2. **Tools > MCP Unity > Server Window** に移動  
 3. **Request Timeout (seconds)** の値を希望のタイムアウト秒数に変更  
-4. Unityが環境変数 `UNITY_REQUEST_TIMEOUT` に新しい値を設定  
+4. Unity は値を `ProjectSettings/McpUnitySettings.json` に保存
 5. Node.jsサーバーを再起動  
-6. **Start Server** を再度クリックして再接続  
+
+プロセスごとに上書きするには、秒単位の `UNITY_REQUEST_TIMEOUT` を設定します（例：`UNITY_REQUEST_TIMEOUT=30 node build/index.js`）。
 
 > [!TIP]  
 > AIコーディングIDE（Claude Desktop、Cursor IDE、Windsurf IDEなど）とMCPサーバー間のタイムアウトは、使用するIDEによって異なる場合があります。

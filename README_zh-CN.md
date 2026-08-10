@@ -286,9 +286,10 @@ MCP Unity 通过将 Unity `Library/PackedCache` 文件夹添加到您的工作�
 1. 打开 Unity 编辑器
 2. 导航到 Tools > MCP Unity > Server Window
 3. 将 "WebSocket Port" 值更改为所需的端口号
-4. Unity 将设置系统环境变量 UNITY_PORT 为新的端口号
+4. Unity 将该值保存到 `ProjectSettings/McpUnitySettings.json`
 5. 重启 Node.js 服务器
-6. 再次点击 "Start Server" 以重新连接 Unity 编辑器 WebSocket 到 Node.js MCP 服务器
+
+Node 桥接会从已安装包的路径发现此设置文件，因此不依赖 MCP 客户端的工作目录。若要仅为一个 Node 进程覆盖端口，请设置 `UNITY_PORT`，例如：`UNITY_PORT=9001 node build/index.js`。
 
 ## 可选：设置超时
 
@@ -298,9 +299,10 @@ MCP Unity 通过将 Unity `Library/PackedCache` 文件夹添加到您的工作�
 1. 打开 Unity 编辑器
 2. 导航到 Tools > MCP Unity > Server Window
 3. 将 "Request Timeout (seconds)" 值更改为所需的超时秒数
-4. Unity 将设置系统环境变量 UNITY_REQUEST_TIMEOUT 为新的超时值
+4. Unity 将该值保存到 `ProjectSettings/McpUnitySettings.json`
 5. 重启 Node.js 服务器
-6. 再次点击 "Start Server" 以重新连接 Unity 编辑器 WebSocket 到 Node.js MCP 服务器
+
+若要仅为一个 Node 进程覆盖超时（单位为秒），请设置 `UNITY_REQUEST_TIMEOUT`，例如：`UNITY_REQUEST_TIMEOUT=30 node build/index.js`。
 
 > [!TIP]  
 > 您的 AI 编码 IDE（例如 Claude Desktop、Cursor IDE、Windsurf IDE）与 MCP 服务器之间的超时时间取决于 IDE。

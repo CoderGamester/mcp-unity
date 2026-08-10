@@ -49,18 +49,27 @@ The Unity settings file is the shared contract:
 - **Path**: `ProjectSettings/McpUnitySettings.json`
 - **Fields**
   - **Port** (default **8090**): Unity WebSocket server port.
-  - **RequestTimeoutSeconds** (default **10**): Node request timeout (Node reads this if the settings file is discoverable).
+  - **RequestTimeoutSeconds** (default **10**): Node request timeout.
+  - **AllowBatchModeServer** (default **false**): permits a persistent MCP host in Unity `-batchmode`; package installation remains disabled in batch mode.
   - **AllowRemoteConnections** (default **false**): Unity binds to `0.0.0.0` when enabled; otherwise `localhost`.
   - **EnableInfoLogs**: Unity console logging verbosity.
   - **NpmExecutablePath**: optional npm path for Unity-driven install/build.
 
-Node reads config from `../ProjectSettings/McpUnitySettings.json` relative to **its current working directory**. If not found, Node falls back to:
+Node resolves bridge configuration in this order:
+- explicit environment values: `UNITY_PORT`, `UNITY_HOST`, `UNITY_REQUEST_TIMEOUT`;
+- `MCP_UNITY_SETTINGS_PATH` when set;
+- `ProjectSettings/McpUnitySettings.json` discovered above the installed Node module, then above the current working directory.
+
+If no valid setting is found, Node falls back to:
 - **host**: `localhost`
 - **port**: `8090`
 - **timeout**: `10s`
 
 **Remote connection note**:
 - If Unity is on another machine, set `AllowRemoteConnections=true` in Unity and set `UNITY_HOST=<unity_machine_ip_or_hostname>` for the Node process.
+
+**Persistent headless host note**:
+- Batch mode is disabled by default. Enable `AllowBatchModeServer` or launch Unity with `MCP_UNITY_ALLOW_BATCH_MODE=true` for a long-lived headless MCP host; npm installation/build remains skipped in batch mode.
 
 ### Adding a new capability
 

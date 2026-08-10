@@ -30,6 +30,9 @@ namespace McpUnity.Unity
         
         [Tooltip("Whether to automatically start the MCP server when Unity opens")]
         public bool AutoStartServer = true;
+
+        [Tooltip("Allow the MCP WebSocket server to run in Unity -batchmode. Node package installation is still skipped in batch mode. This is disabled by default so CI and cloud builds keep the existing behavior.")]
+        public bool AllowBatchModeServer = false;
         
         [Tooltip("Whether to show info logs in the Unity console")]
         public bool EnableInfoLogs = false;
@@ -54,6 +57,12 @@ namespace McpUnity.Unity
                 return _instance;
             }
         }
+
+        /// <summary>
+        /// Returns whether a project settings file already exists without creating one.
+        /// This lets batch-mode CI keep its no-initialization behavior unless it has explicitly opted in.
+        /// </summary>
+        internal static bool HasPersistedSettings => File.Exists(SettingsPath);
 
         /// <summary>
         /// Private constructor for singleton

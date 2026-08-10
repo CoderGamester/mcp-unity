@@ -399,29 +399,45 @@ args = ["Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/inde
 > When the AI client connects to the WebSocket server, it will automatically show in the green box in the window
 
 ## Optional: Set WebSocket Port
-By default, the WebSocket server runs on port '8090'. You can change this port in two ways:
+By default, the WebSocket server runs on port '8090'. To change it:
 
 1. Open the Unity Editor
 2. Navigate to Tools > MCP Unity > Server Window
-3. Change the "WebSocket Port" value to your desired port number
-4. Unity will setup the system environment variable UNITY_PORT to the new port number
+3. Change the "Connection Port" value to your desired port number
+4. Unity persists the value in `ProjectSettings/McpUnitySettings.json`
 5. Restart the Node.js server
-6. Click again on "Start Server" to reconnect the Unity Editor web socket to the Node.js MCP Server
+
+The Node bridge discovers that project settings file from its installed package path, so it does not depend on the MCP client's working directory. To override it for one Node process, set `UNITY_PORT`, for example: `UNITY_PORT=9001 node build/index.js`.
 
 ## Optional: Set Timeout
 
 By default, the timeout between the MCP server and the WebSocket is 10 seconds.
-You can change depending on the OS you are using:
+To change it:
 
 1. Open the Unity Editor
 2. Navigate to Tools > MCP Unity > Server Window
 3. Change the "Request Timeout (seconds)" value to your desired timeout seconds
-4. Unity will setup the system environment variable UNITY_REQUEST_TIMEOUT to the new timeout value
+4. Unity persists the value in `ProjectSettings/McpUnitySettings.json`
 5. Restart the Node.js server
-6. Click again on "Start Server" to reconnect the Unity Editor web socket to the Node.js MCP Server
+
+To override it for one Node process, set `UNITY_REQUEST_TIMEOUT` (in seconds), for example: `UNITY_REQUEST_TIMEOUT=30 node build/index.js`.
 
 > [!TIP]  
 > The timeout between your AI Coding IDE (e.g., Claude Desktop, Cursor IDE, Windsurf IDE) and the MCP Server depends on the IDE.
+
+## Optional: Run a Persistent Headless MCP Host
+
+MCP Unity remains disabled in `-batchmode` by default so CI and cloud builds do not start a bridge or run npm. To run a long-lived headless Editor as an MCP host, opt in before launching Unity by either enabling **Allow Batch Mode Server** in the Server Window or setting `MCP_UNITY_ALLOW_BATCH_MODE=true`:
+
+```bash
+MCP_UNITY_ALLOW_BATCH_MODE=true Unity -batchmode -nographics -projectPath /path/to/project -logFile /path/to/unity.log
+```
+
+The Unity-side WebSocket server starts normally when opted in, but it never runs `npm install` or `npm run build` in batch mode. Ensure the Node bridge is already built and available to the MCP client.
+
+## Bridge Configuration Resolution
+
+The Node bridge resolves each connection value in this order: its environment variable (`UNITY_PORT`, `UNITY_HOST`, or `UNITY_REQUEST_TIMEOUT`), `MCP_UNITY_SETTINGS_PATH`, the `ProjectSettings/McpUnitySettings.json` file found above the installed package, then a file found above its working directory, and finally the defaults. Generated MCP configurations set `MCP_UNITY_SETTINGS_PATH` explicitly. The bridge logs the value source and warns before falling back to defaults.
 
 ## Optional: Allow Remote MCP Bridge Connections
 

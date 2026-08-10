@@ -145,6 +145,17 @@ MCP Unityは、Unityの`Library/PackedCache`フォルダーをワークスペー
 - `batch_execute`: 単一のバッチリクエストで複数のツール操作を実行し、ラウンドトリップを削減しアトミック操作を可能にする（失敗時のロールバックオプション付き）
   > **例:** "単一のバッチ操作でEnemy_1からEnemy_10という名前の10個の空のGameObjectを作成"
 
+### MCP App ツール
+
+- `show_unity_dashboard`: VS Code で Unity ダッシュボード MCP App を開く（VS Code 1.109 以降が必要）
+  > **例:** "Unity ダッシュボードアプリを開いて"
+
+- `get_play_mode_status`: Unity のプレイモード状態（isPlaying、isPaused）を取得
+  > **例:** "Unity はプレイモードですか？"
+
+- `set_play_mode_status`: `play`（開始または再開）、`pause`（一時停止の切替）、`stop`（プレイモードの終了）、`step`（1 フレーム進める）で Unity のプレイモードを操作
+  > **例:** "Unity のプレイモードを開始"、"ゲームを一時停止"、または "1 フレーム進めて"
+
 ### MCPサーバーリソース
 
 - `unity://menu-items`: `execute_menu_item`ツールを容易にするために、Unityエディターで利用可能なすべてのメニュー項目のリストを取得
@@ -168,22 +179,32 @@ MCP Unityは、Unityの`Library/PackedCache`フォルダーをワークスペー
 - `unity://tests/{testMode}`: Unityテストランナー内のテスト情報を取得
   > **例:** "プロジェクトで利用可能なすべてのテストをリスト"
 
+- `ui://unity-dashboard`: Unity ダッシュボード MCP App UI
+  > **例:** "Unity ダッシュボードアプリを開いて"
+
+### MCP サーバープロンプト
+
+プロンプトは、一般的な Unity タスクのガイド付きワークフローを提供する事前設定済みテンプレートです。特定のシナリオにおける適切な操作順序と利用可能なツールを AI アシスタントが理解するのに役立ちます。
+
+- `unity_dashboard`: 機能に関するコンテキスト情報とともに Unity ダッシュボード MCP App を開く
+  > **使い方:** AI アシスタントで `unity_dashboard` プロンプトを使用すると、Unity ダッシュボードへのガイド付きアクセスを得られます
+
+- `gameobject_handling_strategy`: 使用するツールとリソースを含む、GameObject 操作の構造化されたワークフローを提供
+  > **使い方:** AI アシスタントで GameObject の ID、名前、またはパスとともに `gameobject_handling_strategy` プロンプトを使用すると、段階的なガイダンスを得られます
+
 ## 要件
 - Unity 6以降 - [サーバーをインストール](#install-server)するため
 - Node.js 18以降 - [サーバーを起動](#start-server)するため
 - npm 9以降 - [サーバーをデバッグ](#debug-server)するため
 
-> [!IMPORTANT]
-> **プロジェクトパスにスペースを含めることはできません**
+> [!NOTE]
+> **スペースを含むプロジェクトパス**
 >
-> Unity プロジェクトのファイルパスに**スペースを含めない**ことが非常に重要です。
-> プロジェクトパスにスペースが含まれている場合、MCP クライアント（例：Cursor、Claude、Windsurf）は MCP Unity サーバーに接続できません。
+> MCP Unity はスペースを含むプロジェクトパスに対応しています。ただし接続の問題が発生した場合は、トラブルシューティングとしてスペースを含まないパスへプロジェクトを移動してみてください。
 >
 > **例：**
-> -   ✅ **動作します:** `C:\Users\YourUser\Documents\UnityProjects\MyAwesomeGame`
-> -   ❌ **失敗します:** `C:\Users\Your User\Documents\Unity Projects\My Awesome Game`
->
-> インストールを進める前に、プロジェクトがスペースを含まないパスにあることを確認してください。
+> -   ✅ **推奨:** `C:\Users\YourUser\Documents\UnityProjects\MyAwesomeGame`
+> -   ✅ **対応済み:** `C:\Users\Your User\Documents\Unity Projects\My Awesome Game`
 
 ## <a name="install-server"></a>インストール
 
@@ -242,6 +263,12 @@ MCP Unityは、Unityの`Library/PackedCache`フォルダーをワークスペー
 
 ![image](docs/configure.jpg)
 
+> **グローバル設定とプロジェクト設定:**
+> - **Configure \[Client\]** — グローバルユーザー設定ファイル（例: `~/.claude.json`）へ書き込みます。絶対パスを使用し、マシン上のすべてのプロジェクトに適用されます。個人または単一開発者のセットアップに適しています。
+> - **Configure \[Client\] (Project)** — Unity プロジェクトルートの `.mcp.json`（または相当するファイル）へ書き込みます。相対パスを使用するため、マシン間で動作します。Git にコミットしてチームと共有することを想定しており、共同プロジェクトや設定をプロジェクトと一緒に移動したい場合に適しています。
+>
+> 迷った場合は **(Project)** バリアントを選んでください。相対パスの方が可搬性が高く、プロジェクトフォルダを移動しても壊れません。
+
 4. 表示されるポップアップで設定インストールを確認
 
 ![image](https://github.com/user-attachments/assets/b1f05d33-3694-4256-a57b-8556005021ba)
@@ -251,9 +278,15 @@ MCP Unityは、Unityの`Library/PackedCache`フォルダーをワークスペー
 <details>
 <summary><span style="font-size: 1.1em; font-weight: bold;">オプション2: 手動設定</span></summary>
 
-AIクライアントのMCP設定ファイル（例：Claude Desktopのclaude_desktop_config.json）を開き、以下のテキストをコピー：
+AI クライアントの MCP 設定ファイルを開き、MCP Unity サーバー設定を追加します:
 
-> `ABSOLUTE/PATH/TO`をMCP Unityインストールの絶対パスに置き換えるか、UnityエディターMCPサーバーウィンドウ（Tools > MCP Unity > Server Window）からテキストをコピー
+> `ABSOLUTE/PATH/TO` を MCP Unity インストールの絶対パスに置き換えるか、Unity Editor MCP Server ウィンドウ（Tools > MCP Unity > Server Window）からテキストをコピーしてください。
+>
+> Unity プロジェクトツリー内にあり Git にコミットする設定（例: `<project>/.vscode/mcp.json`、`<project>/opencode.json`、`<project>/.cursor/mcp.json`、`<project>/.mcp.json`、`<project>/.codex/config.toml`）には、同じファイルがマシン間で動作するプロジェクト相対パスを使用してください。Server Window の **"Use relative path"** を切り替えると、コピー用スニペットを絶対パスとプロジェクト相対パスの間で切り替えられます。**Configure GitHub Copilot**、**Configure OpenCode**、**Configure Cursor (Project)**、**Configure Claude Code (Project)**、**Configure Codex CLI (Project)** ボタンは、すでに相対パスを自動生成します。
+>
+> プロジェクトローカルボタン（Cursor / Claude Code / Codex CLI）は、グローバルユーザー設定ではなく Unity プロジェクトディレクトリに MCP サーバーエントリを書き込みます。これにより、ほかの（Unity ではない）プロジェクトに接続失敗警告が表示されません。特に **Codex CLI (Project)** では、プロジェクトルートで初めて `codex` を実行する際にプロジェクトの信頼確認を承認する必要があります。承認しない場合、Codex は `<project>/.codex/config.toml` を無視します。
+
+**JSON ベースのクライアント用**（Cursor、Windsurf、Claude Code、GitHub Copilot など）:
 
 ```json
 {
@@ -268,6 +301,87 @@ AIクライアントのMCP設定ファイル（例：Claude Desktopのclaude_des
 }
 ```
 
+ワークスペーススコープの VS Code / GitHub Copilot（`.vscode/mcp.json`）では、マシン間でパスを可搬にするため `${workspaceFolder}` を使用します:
+
+```json
+{
+   "mcpServers": {
+       "mcp-unity": {
+          "command": "node",
+          "args": [
+             "${workspaceFolder}/Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"
+          ]
+       }
+   }
+}
+```
+
+**Codex CLI 用**（`~/.codex/config.toml`）:
+
+```toml
+[mcp_servers.mcp-unity]
+command = "node"
+args = ["ABSOLUTE/PATH/TO/mcp-unity/Server~/build/index.js"]
+```
+
+**Cursor — プロジェクトローカル用**（Unity プロジェクトルートの `.cursor/mcp.json`、プロジェクト相対パス）:
+
+```json
+{
+   "mcpServers": {
+       "mcp-unity": {
+          "command": "node",
+          "args": [
+             "Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"
+          ]
+       }
+   }
+}
+```
+
+**Claude Code — プロジェクトローカル用**（Unity プロジェクトルートの `.mcp.json`、プロジェクト相対パス。Claude Code のチーム共有 MCP 設定）:
+
+```json
+{
+   "mcpServers": {
+       "mcp-unity": {
+          "command": "node",
+          "args": [
+             "Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"
+          ]
+       }
+   }
+}
+```
+
+**Codex CLI — プロジェクトローカル用**（Unity プロジェクトルートの `.codex/config.toml`、プロジェクト相対パス）:
+
+```toml
+[mcp_servers.mcp-unity]
+command = "node"
+args = ["Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"]
+```
+
+> Codex はグローバルの `~/.codex/config.toml` にこのファイルを重ねますが、プロジェクトが信頼済みの場合に限られます。プロジェクトルートで初めて `codex` を実行する際は信頼確認を承認してください。承認しない場合、Codex は `.codex/config.toml` を無視します。
+
+**OpenCode 用**（Unity プロジェクトルートの `opencode.json`）:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mcp-unity": {
+      "type": "local",
+      "enabled": true,
+      "command": ["node", "Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"],
+      "environment": {}
+    }
+  }
+}
+```
+
+> UPM パッケージキャッシュパスの `@<hash>` 部分はパッケージ更新時に変わります。MCP Unity を更新した場合は、**Configure** ボタンを再実行するか、スニペットのパスを手動で更新してください。
+
 </details>
 
 ## <a name="start-server"></a>サーバーの起動
@@ -275,18 +389,18 @@ AIクライアントのMCP設定ファイル（例：Claude Desktopのclaude_des
 1. Unityエディターを開く
 2. Tools > MCP Unity > Server Window に移動
 3. "Start Server" をクリックして WebSocket サーバーを起動
-4. Claude Desktop または AI コーディング IDE（例：Cursor IDE、Windsurf IDE など）を開き、Unity ツールの実行を開始
+4. AI コーディング IDE（例: Cursor、Windsurf、Claude Code、Codex CLI、GitHub Copilot、Google Antigravity、OpenCode など）を開き、Unity ツールの実行を開始
    
 ![connect](https://github.com/user-attachments/assets/2e266a8b-8ba3-4902-b585-b220b11ab9a2)
 
 > AI クライアントが WebSocket サーバーに接続すると、ウィンドウの緑色のボックスに自動的に表示されます
 
 ## オプション：WebSocket ポートを設定
-デフォルトでは、WebSocket サーバーは '8090' ポートで動作します。次の手順でポートを変更できます：
+デフォルトでは、WebSocket サーバーは '8090' ポートで動作します。変更するには:
 
 1. Unityエディターを開く
 2. Tools > MCP Unity > Server Window に移動
-3. "WebSocket Port" の値を希望のポート番号に変更
+3. "Connection Port" の値を希望のポート番号に変更
 4. Unity は値を `ProjectSettings/McpUnitySettings.json` に保存
 5. Node.js サーバーを再起動
 
@@ -294,8 +408,7 @@ Node ブリッジはインストール済みパッケージのパスからこの
 
 ## オプション: タイムアウト設定
 
-デフォルトでは、MCPサーバーとWebSocket間のタイムアウトは 10 秒です。
-お使いの環境に応じて以下の手順で変更できます：
+デフォルトでは、MCPサーバーとWebSocket間のタイムアウトは 10 秒です。変更するには:
 
 1. Unityエディターを開く  
 2. **Tools > MCP Unity > Server Window** に移動  
@@ -307,6 +420,20 @@ Node ブリッジはインストール済みパッケージのパスからこの
 
 > [!TIP]  
 > AIコーディングIDE（Claude Desktop、Cursor IDE、Windsurf IDEなど）とMCPサーバー間のタイムアウトは、使用するIDEによって異なる場合があります。
+
+## オプション：永続的なヘッドレス MCP ホストを実行
+
+MCP Unity は、CI とクラウドビルドでブリッジが起動したり npm が実行されたりしないよう、既定では `-batchmode` で無効です。長時間稼働するヘッドレス Editor を MCP ホストとして実行するには、Server Window で **Allow Batch Mode Server** を有効にするか、Unity の起動前に `MCP_UNITY_ALLOW_BATCH_MODE=true` を設定して明示的に有効化します:
+
+```bash
+MCP_UNITY_ALLOW_BATCH_MODE=true Unity -batchmode -nographics -projectPath /path/to/project -logFile /path/to/unity.log
+```
+
+有効化した場合、Unity 側の WebSocket サーバーは通常どおり起動しますが、バッチモードで `npm install` または `npm run build` を実行することはありません。Node ブリッジがすでにビルド済みで、MCP クライアントから利用可能であることを確認してください。
+
+## ブリッジ設定の解決順序
+
+Node ブリッジは各接続値を次の順で解決します: 環境変数（`UNITY_PORT`、`UNITY_HOST`、`UNITY_REQUEST_TIMEOUT`）、`MCP_UNITY_SETTINGS_PATH`、インストール済みパッケージの上位にある `ProjectSettings/McpUnitySettings.json`、作業ディレクトリの上位にある同ファイル、最後に既定値。生成される MCP 設定は `MCP_UNITY_SETTINGS_PATH` を明示的に設定します。ブリッジは値のソースをログ出力し、既定値へフォールバックする前に警告します。
 
 ## オプション：リモート MCP ブリッジ接続を許可する
 
@@ -449,6 +576,7 @@ MCP Unityは、MCPクライアントとして機能できるAIアシスタント
 -  Codex CLI
 -  GitHub Copilot
 -  Google Antigravity
+-  OpenCode
 
 </details>
 
@@ -501,6 +629,20 @@ Connection failed: Unknown error
 
 </details>
 
+<details>
+<summary><span style="font-size: 1.1em; font-weight: bold;">ツール初期化中に <code>KeyError: 'position'</code> で失敗するクライアントがあるのはなぜですか？</span></summary>
+
+一部の MCP クライアントは、`#/properties/position` のようなローカル JSON ポインター参照を含むツールスキーマの解析に失敗することがあります。
+
+MCP Unity は、transform ツール入力（`set_transform`、`move_gameobject`、`rotate_gameobject`、`scale_gameobject`）を各フィールドごとに新しいネスト済みベクタースキーマで登録することで、生成されるスキーマがローカルの `#/properties/...` 参照に依存しないようにしています。
+
+引き続きこのエラーが発生する場合:
+- MCP クライアントを最新版へ更新する
+- Node サーバーを再ビルドする（`cd Server~ && npm run build`）
+- パッケージバージョンにこの互換性修正が含まれていることを確認する
+
+</details>
+
 ## トラブルシューティング：WSL2（Windows 11）のネットワーク
 
 WSL2 内で MCP（Node.js）サーバーを実行し、Unity が Windows 11 上で動作している場合、`ws://localhost:8090/McpUnity` への接続が `ECONNREFUSED` で失敗することがあります。
@@ -544,6 +686,32 @@ npm i -g wscat
 wscat -c ws://localhost:8090/McpUnity
 # または Windows ホスト IP を使用
 wscat -c ws://$UNITY_HOST:8090/McpUnity
+```
+
+## テストの実行
+
+### C# テスト（Unity）
+
+Unity の Test Runner でテストを実行します:
+
+1. Unity Editor を開く
+2. Window > General > Test Runner に移動
+3. "EditMode" タブを選択
+4. "Run All" をクリックしてすべてのテストを実行
+
+### TypeScript テスト（サーバー）
+
+Jest でテストを実行します:
+
+```bash
+cd Server~
+npm test
+```
+
+ウォッチモードでテストを実行するには:
+
+```bash
+npm run test:watch
 ```
 
 ## サポート & フィードバック

@@ -145,6 +145,17 @@ MCP Unity 通过将 Unity `Library/PackedCache` 文件夹添加到您的工作�
 - `batch_execute`: 在单个批处理请求中执行多个工具操作，减少往返次数并支持原子操作，失败时可选回滚
   > **示例提示:** "在单个批处理操作中创建 10 个名为 Enemy_1 到 Enemy_10 的空 GameObject"
 
+### MCP App 工具
+
+- `show_unity_dashboard`: 在 VS Code 中打开 Unity 仪表板 MCP App（需要 VS Code 1.109 或更高版本）
+  > **示例提示:** "打开 Unity 仪表板应用"
+
+- `get_play_mode_status`: 获取 Unity 播放模式状态（isPlaying、isPaused）
+  > **示例提示:** "Unity 处于播放模式吗？"
+
+- `set_play_mode_status`: 使用操作 `play`（开始或继续）、`pause`（切换暂停）、`stop`（退出播放模式）、`step`（前进一帧）控制 Unity 播放模式
+  > **示例提示:** "启动 Unity 播放模式"、"暂停游戏" 或 "前进一帧"
+
 ### MCP 服务器资源
 
 - `unity://menu-items`: 获取 Unity 编辑器中所有可用的菜单项列表，以方便 `execute_menu_item` 工具
@@ -168,22 +179,32 @@ MCP Unity 通过将 Unity `Library/PackedCache` 文件夹添加到您的工作�
 - `unity://tests/{testMode}`: 获取 Unity 测试运行器中测试的信息
   > **示例提示:** "列出我 Unity 项目中所有可用的测试"
 
+- `ui://unity-dashboard`: Unity 仪表板 MCP App UI
+  > **示例提示:** "打开 Unity 仪表板应用"
+
+### MCP 服务器提示词
+
+提示词是为常见 Unity 任务提供引导式工作流的预配置模板。它们帮助 AI 助手理解特定场景中正确的操作顺序和可用工具。
+
+- `unity_dashboard`: 打开 Unity 仪表板 MCP App，并提供其功能的上下文信息
+  > **用法:** 在 AI 助手中使用 `unity_dashboard` 提示词，以获得对 Unity 仪表板的引导式访问
+
+- `gameobject_handling_strategy`: 提供用于处理 GameObject 的结构化工作流，包括应使用哪些工具和资源
+  > **用法:** 在 AI 助手中结合 GameObject ID、名称或路径使用 `gameobject_handling_strategy` 提示词，以获得逐步指导
+
 ## 要求
 - Unity 6 或更高版本 - 用于[安装服务器](#install-server)
 - Node.js 18 或更高版本 - 用于[启动服务器](#start-server)
 - npm 9 或更高版本 - 用于[调试服务器](#debug-server)
 
-> [!IMPORTANT]
-> **项目路径不能包含空格**
+> [!NOTE]
+> **包含空格的项目路径**
 >
-> 您的 Unity 项目文件路径**不能包含任何空格**，这一点至关重要。
-> 如果您的项目路径包含空格，MCP 客户端（例如 Cursor、Claude、Windsurf）将无法连接到 MCP Unity 服务器。
+> MCP Unity 支持包含空格的项目路径。但是，如果遇到连接问题，请尝试将项目移动到不含空格的路径，作为排查步骤。
 >
 > **示例：**
-> -   ✅ **有效：** `C:\Users\YourUser\Documents\UnityProjects\MyAwesomeGame`
-> -   ❌ **无效：：** `C:\Users\Your User\Documents\Unity Projects\My Awesome Game`
->
-> 在继续安装之前，请确保您的项目位于不含空格的路径中。
+> -   ✅ **推荐：** `C:\Users\YourUser\Documents\UnityProjects\MyAwesomeGame`
+> -   ✅ **支持：** `C:\Users\Your User\Documents\Unity Projects\My Awesome Game`
 
 ## <a name="install-server"></a>安装
 
@@ -242,6 +263,12 @@ MCP Unity 通过将 Unity `Library/PackedCache` 文件夹添加到您的工作�
 
 ![image](docs/configure.jpg)
 
+> **全局配置与项目配置：**
+> - **Configure \[Client\]** — 写入全局用户配置文件（例如 `~/.claude.json`）。使用绝对路径，适用于您机器上的所有项目。最适合个人或单开发者设置。
+> - **Configure \[Client\] (Project)** — 写入 Unity 项目根目录中的 `.mcp.json`（或等效文件）。使用相对路径，因此可在不同机器间工作。该文件应提交到 Git 并与团队共享。最适合协作项目，或希望配置随项目一起移动的情形。
+>
+> 如有疑问，请优先使用 **(Project)** 变体——相对路径更具可移植性，移动项目文件夹后也不会失效。
+
 4. 使用给定的弹出窗口确认配置安装
 
 ![image](https://github.com/user-attachments/assets/b1f05d33-3694-4256-a57b-8556005021ba)
@@ -251,9 +278,15 @@ MCP Unity 通过将 Unity `Library/PackedCache` 文件夹添加到您的工作�
 <details>
 <summary><span style="font-size: 1.1em; font-weight: bold;">选项 2: 手动配置</span></summary>
 
-打开您的 AI 客户端的 MCP 配置文件（例如 Claude Desktop 中的 claude_desktop_config.json）并复制以下文本：
+打开 AI 客户端的 MCP 配置文件，并添加 MCP Unity 服务器配置：
 
-> 将 `ABSOLUTE/PATH/TO` 替换为您的 MCP Unity 安装的绝对路径，或者直接从 Unity 编辑器 MCP 服务器窗口（Tools > MCP Unity > Server Window）复制文本。
+> 将 `ABSOLUTE/PATH/TO` 替换为 MCP Unity 安装的绝对路径，或直接从 Unity 编辑器 MCP 服务器窗口（Tools > MCP Unity > Server Window）复制文本。
+>
+> 对于位于 Unity 项目树中且会提交到 Git 的配置（例如 `<project>/.vscode/mcp.json`、`<project>/opencode.json`、`<project>/.cursor/mcp.json`、`<project>/.mcp.json`、`<project>/.codex/config.toml`），请优先使用项目相对路径，以便同一文件能在不同机器上工作。在 Server Window 中切换 **"Use relative path"**，可在绝对路径与项目相对路径的复制片段之间切换。**Configure GitHub Copilot**、**Configure OpenCode**、**Configure Cursor (Project)**、**Configure Claude Code (Project)** 和 **Configure Codex CLI (Project)** 按钮已自动生成相对路径。
+>
+> 项目本地按钮（Cursor / Claude Code / Codex CLI）会将 MCP 服务器条目写入 Unity 项目目录，而不是全局用户配置，因此其他（非 Unity）项目不会看到 MCP 连接失败警告。对于 **Codex CLI (Project)**，首次在项目根目录运行 `codex` 时必须批准项目可信提示；否则 Codex 会忽略 `<project>/.codex/config.toml`。
+
+**适用于 JSON 客户端**（Cursor、Windsurf、Claude Code、GitHub Copilot 等）：
 
 ```json
 {
@@ -268,24 +301,105 @@ MCP Unity 通过将 Unity `Library/PackedCache` 文件夹添加到您的工作�
 }
 ```
 
+对于工作区范围的 VS Code / GitHub Copilot（`.vscode/mcp.json`），请使用 `${workspaceFolder}`，以便路径能在不同机器间移植：
+
+```json
+{
+   "mcpServers": {
+       "mcp-unity": {
+          "command": "node",
+          "args": [
+             "${workspaceFolder}/Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"
+          ]
+       }
+   }
+}
+```
+
+**适用于 Codex CLI**（`~/.codex/config.toml`）：
+
+```toml
+[mcp_servers.mcp-unity]
+command = "node"
+args = ["ABSOLUTE/PATH/TO/mcp-unity/Server~/build/index.js"]
+```
+
+**Cursor — 项目本地**（Unity 项目根目录的 `.cursor/mcp.json`，使用项目相对路径）：
+
+```json
+{
+   "mcpServers": {
+       "mcp-unity": {
+          "command": "node",
+          "args": [
+             "Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"
+          ]
+       }
+   }
+}
+```
+
+**Claude Code — 项目本地**（Unity 项目根目录的 `.mcp.json`，使用项目相对路径；这是 Claude Code 的团队共享 MCP 配置）：
+
+```json
+{
+   "mcpServers": {
+       "mcp-unity": {
+          "command": "node",
+          "args": [
+             "Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"
+          ]
+       }
+   }
+}
+```
+
+**Codex CLI — 项目本地**（Unity 项目根目录的 `.codex/config.toml`，使用项目相对路径）：
+
+```toml
+[mcp_servers.mcp-unity]
+command = "node"
+args = ["Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"]
+```
+
+> Codex 会将此文件叠加到全局 `~/.codex/config.toml`，但仅当项目被标记为受信任时才会生效。首次在项目根目录运行 `codex` 时，请批准信任提示；否则 Codex 会忽略 `.codex/config.toml`。
+
+**适用于 OpenCode**（Unity 项目根目录的 `opencode.json`）：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mcp-unity": {
+      "type": "local",
+      "enabled": true,
+      "command": ["node", "Library/PackageCache/com.gamelovers.mcp-unity@<hash>/Server~/build/index.js"],
+      "environment": {}
+    }
+  }
+}
+```
+
+> UPM 包缓存路径中的 `@<hash>` 段会在更新包时发生变化。更新 MCP Unity 后，请重新运行 **Configure** 按钮，或手动更新指向新缓存目录的路径。
+
 </details>
 
 ## <a name="start-server"></a>启动 Unity 编辑器 MCP 服务器
 1. 打开 Unity 编辑器
 2. 导航到 Tools > MCP Unity > Server Window
 3. 点击 "Start Server" 按钮以启动 WebSocket 服务器
-4. 打开 Claude Desktop 或您的 AI 编码 IDE（例如 Cursor IDE、Windsurf IDE 等）并开始执行 Unity 工具
+4. 打开 AI 编码 IDE（例如 Cursor、Windsurf、Claude Code、Codex CLI、GitHub Copilot、Google Antigravity、OpenCode 等）并开始执行 Unity 工具
    
 ![connect](https://github.com/user-attachments/assets/2e266a8b-8ba3-4902-b585-b220b11ab9a2)
 
 > 当 AI 客户端连接到 WebSocket 服务器时，它将自动显示在窗口的绿色框中
 
 ## 可选：设置 WebSocket 端口
-默认情况下，WebSocket 服务器运行在 '8090' 端口。您可以通过两种方式更改此端口：
+默认情况下，WebSocket 服务器运行在 '8090' 端口。要更改它：
 
 1. 打开 Unity 编辑器
 2. 导航到 Tools > MCP Unity > Server Window
-3. 将 "WebSocket Port" 值更改为所需的端口号
+3. 将 "Connection Port" 值更改为所需的端口号
 4. Unity 将该值保存到 `ProjectSettings/McpUnitySettings.json`
 5. 重启 Node.js 服务器
 
@@ -293,8 +407,7 @@ Node 桥接会从已安装包的路径发现此设置文件，因此不依赖 MC
 
 ## 可选：设置超时
 
-默认情况下，MCP 服务器与 WebSocket 之间的超时时间为 10 秒。
-您可以根据您使用的操作系统进行更改：
+默认情况下，MCP 服务器与 WebSocket 之间的超时时间为 10 秒。要更改它：
 
 1. 打开 Unity 编辑器
 2. 导航到 Tools > MCP Unity > Server Window
@@ -306,6 +419,20 @@ Node 桥接会从已安装包的路径发现此设置文件，因此不依赖 MC
 
 > [!TIP]  
 > 您的 AI 编码 IDE（例如 Claude Desktop、Cursor IDE、Windsurf IDE）与 MCP 服务器之间的超时时间取决于 IDE。
+
+## 可选：运行持久化的无头 MCP 主机
+
+MCP Unity 默认在 `-batchmode` 下保持禁用，以便 CI 和云构建不会启动桥接或运行 npm。要将长期运行的无头 Editor 作为 MCP 主机运行，请在启动 Unity 前通过在 Server Window 中启用 **Allow Batch Mode Server** 或设置 `MCP_UNITY_ALLOW_BATCH_MODE=true` 来显式启用：
+
+```bash
+MCP_UNITY_ALLOW_BATCH_MODE=true Unity -batchmode -nographics -projectPath /path/to/project -logFile /path/to/unity.log
+```
+
+启用后，Unity 端 WebSocket 服务器会正常启动，但在批处理模式下永远不会运行 `npm install` 或 `npm run build`。请确保 Node 桥接已构建完成，并且 MCP 客户端可用。
+
+## 桥接配置解析顺序
+
+Node 桥接按以下顺序解析每个连接值：环境变量（`UNITY_PORT`、`UNITY_HOST` 或 `UNITY_REQUEST_TIMEOUT`）、`MCP_UNITY_SETTINGS_PATH`、在已安装包上级目录中找到的 `ProjectSettings/McpUnitySettings.json`、在工作目录上级目录中找到的同一文件，最后是默认值。生成的 MCP 配置会显式设置 `MCP_UNITY_SETTINGS_PATH`。桥接会记录值的来源，并在回退到默认值前发出警告。
 
 ## 可选：允许远程 MCP Bridge 连接
 
@@ -450,6 +577,7 @@ MCP Unity 为开发人员、美术和项目经理提供了多个优势：
 -  Codex CLI
 -  GitHub Copilot
 -  Google Antigravity
+-  OpenCode
 
 </details>
 
@@ -500,6 +628,20 @@ Connection failed: Unknown error
 
 </details>
 
+<details>
+<summary><span style="font-size: 1.1em; font-weight: bold;">为什么有些客户端会在工具初始化期间因 <code>KeyError: 'position'</code> 失败？</span></summary>
+
+某些 MCP 客户端在解析包含本地 JSON 指针引用（如 `#/properties/position`）的工具模式时可能失败。
+
+MCP Unity 会为 transform 工具输入（`set_transform`、`move_gameobject`、`rotate_gameobject`、`scale_gameobject`）中的每个字段注册新的嵌套向量模式，因此生成的模式不依赖本地 `#/properties/...` 引用。
+
+如果仍然遇到此错误：
+- 将 MCP 客户端更新到最新版本；
+- 重新构建 Node 服务器（`cd Server~ && npm run build`）；
+- 确认您的包版本包含此兼容性修复。
+
+</details>
+
 ## 故障排除：WSL2（Windows 11）网络
 
 当 MCP（Node.js）服务器在 WSL2 内运行，而 Unity 在 Windows 11 上运行时，连接 `ws://localhost:8090/McpUnity` 可能会失败并报错 `ECONNREFUSED`。
@@ -543,6 +685,32 @@ npm i -g wscat
 wscat -c ws://localhost:8090/McpUnity
 # 或使用 Windows 主机 IP
 wscat -c ws://$UNITY_HOST:8090/McpUnity
+```
+
+## 运行测试
+
+### C# 测试（Unity）
+
+使用 Unity 的 Test Runner 运行测试：
+
+1. 打开 Unity 编辑器
+2. 导航到 Window > General > Test Runner
+3. 选择 "EditMode" 选项卡
+4. 点击 "Run All" 执行所有测试
+
+### TypeScript 测试（服务器）
+
+使用 Jest 运行测试：
+
+```bash
+cd Server~
+npm test
+```
+
+要在监视模式下运行测试：
+
+```bash
+npm run test:watch
 ```
 
 ## 支持与反馈

@@ -918,6 +918,10 @@ namespace McpUnity.Unity
             // Register GetGameObjectResource
             GetGameObjectResource getGameObjectResource = new GetGameObjectResource();
             _resources.Add(getGameObjectResource.Name, getGameObjectResource);
+
+            // Register GetInspectorStateResource
+            GetInspectorStateResource getInspectorStateResource = new GetInspectorStateResource();
+            _resources.Add(getInspectorStateResource.Name, getInspectorStateResource);
         }
         
         /// <summary>

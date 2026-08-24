@@ -36,6 +36,7 @@ import { registerGetPackagesResource } from './resources/getPackagesResource.js'
 import { registerGetAssetsResource } from './resources/getAssetsResource.js';
 import { registerGetTestsResource } from './resources/getTestsResource.js';
 import { registerGetGameObjectResource } from './resources/getGameObjectResource.js';
+import { registerGetInspectorStateResource } from './resources/getInspectorStateResource.js';
 import { registerUnityDashboardAppResource } from './resources/unityDashboardAppResource.js';
 import { registerGameObjectHandlingPrompt } from './prompts/gameobjectHandlingPrompt.js';
 import { registerUnityDashboardPrompt } from './prompts/unityDashboardPrompt.js';
@@ -109,6 +110,7 @@ registerGetConsoleLogsResource(server, mcpUnity, resourceLogger);
 registerGetHierarchyResource(server, mcpUnity, resourceLogger);
 registerGetPackagesResource(server, mcpUnity, resourceLogger);
 registerGetAssetsResource(server, mcpUnity, resourceLogger);
+registerGetInspectorStateResource(server, mcpUnity, resourceLogger);
 registerUnityDashboardAppResource(server, resourceLogger);
 
 // Register all prompts into the MCP server

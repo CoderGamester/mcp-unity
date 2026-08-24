@@ -1550,6 +1550,10 @@
       }
       autoRefresh.onchange = scheduleAuto;
       interval.onchange = scheduleAuto;
+      // Start the interval for the initial checkbox state; without this the
+      // checked "Auto" box is inert until toggled and the dashboard only
+      // fetches once per page load.
+      scheduleAuto();
       focusFilter.onchange = () => {
         state.focusFilterEnabled = focusFilter.checked;
         renderHierarchy(state.lastHierarchy || []);

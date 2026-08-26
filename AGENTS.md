@@ -179,3 +179,5 @@ If no valid setting is found, Node falls back to:
   - config shape or default ports/paths change,
   - the bridge protocol changes (request/response contract).
 - Keep it **high-signal**: where to edit code, how to run/build/debug, and the invariants that prevent subtle breakage.
+- `AGENTS.md` is the single source of project guidance. Its sibling `CLAUDE.md` must contain the exact bytes `@AGENTS.md\n`; never duplicate these rules there.
+- If project skills are added, keep their content only in `.agents/skills/<skill>/` and expose each to Claude Code through a relative `.claude/skills/<skill>` symlink targeting `../../.agents/skills/<skill>`. Never use copied content or absolute links, so clones and worktrees remain self-contained.

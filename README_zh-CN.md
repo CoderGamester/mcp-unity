@@ -432,7 +432,17 @@ MCP_UNITY_ALLOW_BATCH_MODE=true Unity -batchmode -nographics -projectPath /path/
 
 ## 桥接配置解析顺序
 
-Node 桥接按以下顺序解析每个连接值：环境变量（`UNITY_PORT`、`UNITY_HOST` 或 `UNITY_REQUEST_TIMEOUT`）、`MCP_UNITY_SETTINGS_PATH`、在已安装包上级目录中找到的 `ProjectSettings/McpUnitySettings.json`、在工作目录上级目录中找到的同一文件，最后是默认值。生成的 MCP 配置会显式设置 `MCP_UNITY_SETTINGS_PATH`。桥接会记录值的来源，并在回退到默认值前发出警告。
+Node 桥接按以下顺序解析每个连接值：环境变量（`UNITY_PORT`、`UNITY_HOST` 或 `UNITY_REQUEST_TIMEOUT`）、`MCP_UNITY_SETTINGS_PATH`、在已安装包上级目录中找到的 `ProjectSettings/McpUnitySettings.json`、在工作目录上级目录中找到的同一文件，最后是默认值。生成的 MCP 配置会显式设置 `MCP_UNITY_SETTINGS_PATH` 和 `MCP_UNITY_AUTH_TOKEN_PATH`。桥接会记录值的来源，并在回退到默认值前发出警告。
+
+## 桥接安全与包安装
+
+MCP Unity 会在 `Library/McpUnity/bridge-token` 创建每个项目独有的 256 位身份验证令牌。令牌解析顺序是严格的：先使用 `MCP_UNITY_AUTH_TOKEN`，然后是 `MCP_UNITY_AUTH_TOKEN_PATH`，最后是已发现 Unity 项目中的令牌。显式配置的值缺失或格式错误时会直接失败，不会回退。生成的配置使用令牌文件路径，且不会把密钥写入 `ProjectSettings`。
+
+Unity 端点要求使用用户名 `mcp-unity` 的 HTTP Basic 身份验证，并拒绝所有带 `Origin` 请求头的 WebSocket 握手。直接连接 WebSocket 的集成必须提供身份验证且不能发送 `Origin`。可以在 Server Window 中复制或重新生成令牌；轮换令牌后，请重启所有 MCP 客户端进程。
+
+Unity 包可能在编译时执行 Editor 代码，因此 `add_package` 工具默认禁用。仅当 MCP 客户端和包来源可信时，才通过 Tools > MCP Unity > Server Window 中的 **Allow Package Installation**，或在 `ProjectSettings/McpUnitySettings.json` 中设置 `AllowPackageInstallation=true` 来启用。
+
+版本 1.5.0 会有意拒绝 1.4.x Node 桥接。请同时升级 Unity 和 Node 包组件；如果包缓存路径发生变化，请重新运行 Unity 的 Configure 操作，并重启 MCP 客户端。
 
 ## 可选：允许远程 MCP Bridge 连接
 
@@ -445,6 +455,8 @@ Node 桥接按以下顺序解析每个连接值：环境变量（`UNITY_PORT`、
 5. 重新启动 Node.js 服务器以应用新的主机配置  
 6. 在远程运行 MCP Bridge 时，将环境变量 UNITY_HOST 设置为 Unity 所在机器的 IP 地址：  
    `UNITY_HOST=192.168.1.100 node server.js`
+
+远程传输仍使用未加密的 `ws://`。身份验证可以阻止未授权访问，但无法隐藏通信内容；请仅在可信网络、VPN 或 SSH 隧道中使用。无法读取 Unity 项目令牌文件的远程桥接必须通过安全的密钥管理方式接收 `MCP_UNITY_AUTH_TOKEN`。
 
 ## <a name="debug-server"></a>调试服务器
 

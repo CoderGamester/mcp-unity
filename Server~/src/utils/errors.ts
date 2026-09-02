@@ -1,5 +1,6 @@
 export enum ErrorType {
   CONNECTION = 'connection_error',
+  AUTHENTICATION = 'authentication_error',
   TOOL_EXECUTION = 'tool_execution_error',
   RESOURCE_FETCH = 'resource_fetch_error',
   VALIDATION = 'validation_error',

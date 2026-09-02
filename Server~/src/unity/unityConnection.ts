@@ -39,6 +39,7 @@ export interface UnityConnectionConfig {
   host: string;
   port: number;
   requestTimeout: number;
+  authToken: string;
   connectTimeout?: number;
   clientName?: string;
 
@@ -209,13 +210,15 @@ export class UnityConnection extends EventEmitter {
     );
 
     return new Promise<void>((resolve, reject) => {
+      let terminalAuthenticationFailure: McpUnityError | null = null;
       const wsUrl = `ws://${this.config.host}:${this.config.port}/McpUnity`;
       this.logger.debug(`Connecting to ${wsUrl}...`);
 
       // Create connection options with headers for client identification
       const options: WebSocket.ClientOptions = {
         headers: {
-          'X-Client-Name': this.config.clientName || ''
+          'X-Client-Name': this.config.clientName || '',
+          'Authorization': `Basic ${Buffer.from(`mcp-unity:${this.config.authToken}`, 'utf8').toString('base64')}`
         }
       };
 
@@ -253,6 +256,10 @@ export class UnityConnection extends EventEmitter {
       };
 
       this.ws.onerror = (err) => {
+        if (terminalAuthenticationFailure) {
+          return;
+        }
+
         this.clearConnectionTimeout();
         const errorMessage = err.message || 'Unknown error';
         this.logger.error(`WebSocket error: ${errorMessage}`);
@@ -283,6 +290,10 @@ export class UnityConnection extends EventEmitter {
         // Clear WebSocket reference
         this.ws = null;
 
+        if (terminalAuthenticationFailure) {
+          return;
+        }
+
         // Handle reconnection if not manual disconnect
         if (!this.isManualDisconnect) {
           this.handleConnectionFailure(new McpUnityError(ErrorType.CONNECTION, reason));
@@ -300,6 +311,23 @@ export class UnityConnection extends EventEmitter {
       this.ws.on('pong', () => {
         this.handlePong();
       });
+
+      this.ws.on('unexpected-response', (_request, response) => {
+        if (response.statusCode !== 401 && response.statusCode !== 403) {
+          return;
+        }
+
+        const error = new McpUnityError(
+          ErrorType.AUTHENTICATION,
+          `Unity rejected MCP authentication (HTTP ${response.statusCode}). Restart the MCP client after checking or regenerating the project authentication token.`
+        );
+        terminalAuthenticationFailure = error;
+        this.clearConnectionTimeout();
+        this.stopHeartbeat();
+        this.ws?.terminate();
+        this.handleConnectionFailure(error);
+        reject(error);
+      });
     });
   }
 
@@ -307,6 +335,14 @@ export class UnityConnection extends EventEmitter {
    * Handle connection failure and schedule reconnection
    */
   private handleConnectionFailure(error: McpUnityError): void {
+    if (error.type === ErrorType.AUTHENTICATION) {
+      this.isManualDisconnect = true;
+      this.stopReconnectTimer();
+      this.setState(ConnectionState.Disconnected, error.message);
+      this.emit('error', error);
+      return;
+    }
+
     if (this.isManualDisconnect) {
       this.setState(ConnectionState.Disconnected, 'Manual disconnect');
       return;

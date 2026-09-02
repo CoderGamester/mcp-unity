@@ -433,7 +433,17 @@ MCP_UNITY_ALLOW_BATCH_MODE=true Unity -batchmode -nographics -projectPath /path/
 
 ## ブリッジ設定の解決順序
 
-Node ブリッジは各接続値を次の順で解決します: 環境変数（`UNITY_PORT`、`UNITY_HOST`、`UNITY_REQUEST_TIMEOUT`）、`MCP_UNITY_SETTINGS_PATH`、インストール済みパッケージの上位にある `ProjectSettings/McpUnitySettings.json`、作業ディレクトリの上位にある同ファイル、最後に既定値。生成される MCP 設定は `MCP_UNITY_SETTINGS_PATH` を明示的に設定します。ブリッジは値のソースをログ出力し、既定値へフォールバックする前に警告します。
+Node ブリッジは各接続値を次の順で解決します: 環境変数（`UNITY_PORT`、`UNITY_HOST`、`UNITY_REQUEST_TIMEOUT`）、`MCP_UNITY_SETTINGS_PATH`、インストール済みパッケージの上位にある `ProjectSettings/McpUnitySettings.json`、作業ディレクトリの上位にある同ファイル、最後に既定値。生成される MCP 設定は `MCP_UNITY_SETTINGS_PATH` と `MCP_UNITY_AUTH_TOKEN_PATH` を明示的に設定します。ブリッジは値のソースをログ出力し、既定値へフォールバックする前に警告します。
+
+## ブリッジのセキュリティとパッケージのインストール
+
+MCP Unity はプロジェクトごとの 256 ビット認証トークンを `Library/McpUnity/bridge-token` に作成します。トークンの解決順序は厳密で、`MCP_UNITY_AUTH_TOKEN`、`MCP_UNITY_AUTH_TOKEN_PATH`、検出された Unity プロジェクト内のトークンの順です。明示的に指定した値が存在しない、または不正な場合はフォールバックせず失敗します。生成される設定はトークンファイルのパスを使用し、秘密値を `ProjectSettings` に保存しません。
+
+Unity エンドポイントはユーザー名 `mcp-unity` の HTTP Basic 認証を要求し、`Origin` ヘッダーを含むすべての WebSocket ハンドシェイクを拒否します。WebSocket を直接利用する実装は認証を付け、`Origin` を送信しないでください。トークンのコピーまたは再生成は Server Window で行えます。再生成後は、すべての MCP クライアントプロセスを再起動してください。
+
+Unity パッケージはコンパイル時に Editor コードを実行できるため、`add_package` ツールは既定で無効です。信頼できる MCP クライアントとパッケージソースに限り、Tools > MCP Unity > Server Window の **Allow Package Installation**、または `ProjectSettings/McpUnitySettings.json` の `AllowPackageInstallation=true` で有効にしてください。
+
+バージョン 1.5.0 は意図的に 1.4.x の Node ブリッジを拒否します。Unity 側と Node 側の両方を更新し、パッケージキャッシュのパスが変わった場合は Unity の Configure 操作を再実行して、MCP クライアントを再起動してください。
 
 ## オプション：リモート MCP ブリッジ接続を許可する
 
@@ -446,6 +456,8 @@ Node ブリッジは各接続値を次の順で解決します: 環境変数（`
 5. Node.js サーバーを再起動して新しいホスト設定を適用する  
 6. リモートで MCP ブリッジを実行する場合は、環境変数 UNITY_HOST を Unity 実行マシンの IP アドレスに設定して起動：  
    `UNITY_HOST=192.168.1.100 node server.js`
+
+リモート転送は暗号化されていない `ws://` のままです。認証は不正アクセスを防ぎますが通信内容を秘匿しないため、信頼できるネットワーク、VPN、または SSH トンネルに限定してください。Unity プロジェクトのトークンファイルを読めないリモートブリッジには、安全なシークレット管理を通して `MCP_UNITY_AUTH_TOKEN` を渡してください。
 
 ## <a name="debug-server"></a>サーバーのデバッグ
 

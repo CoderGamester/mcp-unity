@@ -13,7 +13,7 @@ namespace McpUnity.Unity
     public class McpUnitySettings
     {
         // Constants
-        public const string ServerVersion = "1.2.0";
+        public const string ServerVersion = "1.5.0";
         public const string PackageName = "com.gamelovers.mcp-unity";
         public const int RequestTimeoutMinimum = 10;
         
@@ -42,6 +42,9 @@ namespace McpUnity.Unity
         
         [Tooltip("Allow connections from remote MCP bridges. When disabled, only localhost connections are allowed (default).")]
         public bool AllowRemoteConnections = false;
+
+        [Tooltip("Allow MCP clients to install Unity packages. Disabled by default because installed packages can execute Editor code.")]
+        public bool AllowPackageInstallation = false;
 
         /// <summary>
         /// Singleton instance of settings

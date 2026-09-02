@@ -143,6 +143,23 @@ describe('Request timeout handling', () => {
   });
 });
 
+describe('Authentication startup failures', () => {
+  it('surfaces a stored authentication failure on subsequent tool calls', async () => {
+    const logger = new Logger('Test', LogLevel.ERROR);
+    const unity = new McpUnity(logger, { queueingEnabled: true });
+    const authenticationError = new McpUnityError(
+      ErrorType.AUTHENTICATION,
+      'Authentication token is unavailable'
+    );
+    (unity as any).startupError = authenticationError;
+
+    await expect(unity.sendRequest({
+      method: 'get_play_mode_status',
+      params: {}
+    })).rejects.toBe(authenticationError);
+  });
+});
+
 describe('Unity request/response diagnostics', () => {
   const createMockLogger = () => ({
     debug: jest.fn(),

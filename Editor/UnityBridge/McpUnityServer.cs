@@ -8,6 +8,7 @@ using McpUnity.Tools;
 using McpUnity.Resources;
 using McpUnity.Services;
 using McpUnity.Utils;
+using WebSocketSharp.Net;
 using WebSocketSharp.Server;
 using System.IO;
 using System.Net.Sockets;
@@ -369,9 +370,11 @@ namespace McpUnity.Unity
             WebSocketServer webSocketServer = null;
             try
             {
+                string authenticationToken = McpUnityAuthentication.GetOrCreateToken();
                 int connectionGeneration = Interlocked.Increment(ref _connectionGeneration);
                 var host = McpUnitySettings.Instance.AllowRemoteConnections ? "0.0.0.0" : "localhost";
                 webSocketServer = new WebSocketServer($"ws://{host}:{McpUnitySettings.Instance.Port}");
+                ConfigureWebSocketSecurity(webSocketServer, authenticationToken);
                 webSocketServer.Log.Output = (data, path) => { };
                 webSocketServer.AddWebSocketService("/McpUnity", () => new McpUnitySocketHandler(this, connectionGeneration));
                 webSocketServer.Start();
@@ -412,6 +415,26 @@ namespace McpUnity.Unity
                 McpLogger.LogError($"Failed to start WebSocket server: {ex.Message}\n{ex.StackTrace}");
                 return StartServerResult.Failed;
             }
+        }
+
+        private static void ConfigureWebSocketSecurity(WebSocketServer webSocketServer, string authenticationToken)
+        {
+            if (webSocketServer == null)
+            {
+                throw new ArgumentNullException(nameof(webSocketServer));
+            }
+
+            if (!McpUnityAuthentication.IsValidToken(authenticationToken))
+            {
+                throw new InvalidDataException("Cannot start the MCP WebSocket server with an invalid authentication token.");
+            }
+
+            webSocketServer.AuthenticationSchemes = AuthenticationSchemes.Basic;
+            webSocketServer.Realm = McpUnityAuthentication.Realm;
+            webSocketServer.UserCredentialsFinder = identity =>
+                identity != null && string.Equals(identity.Name, McpUnityAuthentication.Username, StringComparison.Ordinal)
+                    ? new NetworkCredential(McpUnityAuthentication.Username, authenticationToken)
+                    : null;
         }
 
         private static double GetDelayedStartDelaySeconds(int attempt)

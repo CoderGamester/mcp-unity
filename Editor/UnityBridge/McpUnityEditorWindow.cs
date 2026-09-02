@@ -160,6 +160,87 @@ namespace McpUnity.Unity
                 // Restart server to apply binding change
                 mcpUnityServer.RestartServer();
             }
+
+            if (settings.AllowRemoteConnections)
+            {
+                EditorGUILayout.HelpBox(
+                    "Remote MCP connections use unencrypted ws:// transport. Authentication protects access but not confidentiality. Only use this on a trusted network, VPN, or SSH tunnel.",
+                    MessageType.Warning);
+            }
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Security", EditorStyles.boldLabel);
+            EditorGUILayout.BeginVertical("box");
+
+            bool authenticationReady = McpUnityAuthentication.TryGetToken(out string authenticationToken, out string authenticationError);
+            EditorGUILayout.LabelField("Authentication", authenticationReady ? "Ready" : "Unavailable");
+            EditorGUILayout.LabelField("Token File");
+            EditorGUILayout.SelectableLabel(
+                McpUnityAuthentication.TokenPath.Replace("\\", "/"),
+                EditorStyles.textField,
+                GUILayout.Height(EditorGUIUtility.singleLineHeight));
+
+            if (!authenticationReady)
+            {
+                EditorGUILayout.HelpBox(authenticationError, MessageType.Error);
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            GUI.enabled = authenticationReady;
+            if (GUILayout.Button("Copy Authentication Token"))
+            {
+                EditorGUIUtility.systemCopyBuffer = authenticationToken;
+            }
+
+            GUI.enabled = true;
+            if (GUILayout.Button("Regenerate Authentication Token")
+                && EditorUtility.DisplayDialog(
+                    "Regenerate Authentication Token?",
+                    "Existing MCP clients will be disconnected and cannot reconnect until they are restarted with the new token.",
+                    "Regenerate",
+                    "Cancel"))
+            {
+                try
+                {
+                    McpUnityAuthentication.RegenerateToken();
+                    mcpUnityServer.RestartServer();
+                    EditorUtility.DisplayDialog(
+                        "Authentication Token Regenerated",
+                        "Restart every MCP client process so it reloads the new token.",
+                        "OK");
+                }
+                catch (Exception ex)
+                {
+                    EditorUtility.DisplayDialog("Token Regeneration Failed", ex.Message, "OK");
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            bool allowPackageInstallation = EditorGUILayout.Toggle(
+                new GUIContent(
+                    "Allow Package Installation",
+                    "Allow add_package to install registry, Git, or disk packages. Installed packages can execute arbitrary Editor code."),
+                settings.AllowPackageInstallation);
+            if (allowPackageInstallation != settings.AllowPackageInstallation)
+            {
+                bool applyChange = !allowPackageInstallation || EditorUtility.DisplayDialog(
+                    "Enable Package Installation?",
+                    "Unity packages can execute arbitrary code in the Editor as soon as they compile. Only enable this capability for trusted MCP clients and package sources.",
+                    "Enable",
+                    "Cancel");
+                if (applyChange)
+                {
+                    settings.AllowPackageInstallation = allowPackageInstallation;
+                    settings.SaveSettings();
+                }
+            }
+
+            if (!settings.AllowPackageInstallation)
+            {
+                EditorGUILayout.HelpBox("The add_package tool is disabled by default.", MessageType.Info);
+            }
+
+            EditorGUILayout.EndVertical();
             
             EditorGUILayout.Space();
             

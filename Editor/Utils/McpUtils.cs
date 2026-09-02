@@ -47,7 +47,8 @@ namespace McpUnity.Utils
                                 { "args", new[] { GetIndexJsPath(pathMode) } },
                                 { "env", new Dictionary<string, object>
                                     {
-                                        { "MCP_UNITY_SETTINGS_PATH", GetSettingsFilePath() }
+                                        { "MCP_UNITY_SETTINGS_PATH", GetSettingsFilePath() },
+                                        { "MCP_UNITY_AUTH_TOKEN_PATH", GetAuthTokenFilePath() }
                                     }
                                 }
                             }
@@ -103,7 +104,8 @@ namespace McpUnity.Utils
                                 { "command", new[] { "node", indexJsPath } },
                                 { "environment", new Dictionary<string, object>
                                     {
-                                        { "MCP_UNITY_SETTINGS_PATH", GetSettingsFilePath() }
+                                        { "MCP_UNITY_SETTINGS_PATH", GetSettingsFilePath() },
+                                        { "MCP_UNITY_AUTH_TOKEN_PATH", GetAuthTokenFilePath() }
                                     }
                                 }
                             }
@@ -147,7 +149,7 @@ namespace McpUnity.Utils
             sb.AppendLine("[mcp_servers.mcp-unity]");
             sb.AppendLine("command = \"node\"");
             sb.AppendLine($"args = [\"{indexJsPath}\"]");
-            sb.AppendLine($"env = {{ MCP_UNITY_SETTINGS_PATH = \"{GetSettingsFilePath()}\" }}");
+            sb.AppendLine($"env = {{ MCP_UNITY_SETTINGS_PATH = \"{GetSettingsFilePath()}\", MCP_UNITY_AUTH_TOKEN_PATH = \"{GetAuthTokenFilePath()}\" }}");
             return sb.ToString();
         }
 
@@ -159,6 +161,11 @@ namespace McpUnity.Utils
         {
             string projectRoot = Directory.GetParent(Application.dataPath).FullName;
             return Path.Combine(projectRoot, "ProjectSettings", "McpUnitySettings.json").Replace("\\", "/");
+        }
+
+        private static string GetAuthTokenFilePath()
+        {
+            return McpUnityAuthentication.TokenPath.Replace("\\", "/");
         }
 
         /// <summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEngine;
 using UnityEditor.PackageManager;
 using UnityEditor.PackageManager.Requests;
 using Newtonsoft.Json.Linq;
@@ -42,6 +43,18 @@ namespace McpUnity.Tools
         /// <param name="tcs">TaskCompletionSource to set the result or exception</param>
         public override void ExecuteAsync(JObject parameters, TaskCompletionSource<JObject> tcs)
         {
+            if (!IsPackageInstallationAllowed(Application.isBatchMode, McpUnitySettings.Instance.AllowPackageInstallation))
+            {
+                string message = Application.isBatchMode
+                    ? "Package installation is disabled while Unity is running in batch mode."
+                    : "Package installation is disabled. Enable 'Allow Package Installation' in Tools > MCP Unity > Server Window or set AllowPackageInstallation to true in ProjectSettings/McpUnitySettings.json.";
+                tcs.SetResult(McpUnitySocketHandler.CreateErrorResponse(
+                    message,
+                    "package_installation_disabled"
+                ));
+                return;
+            }
+
             // Extract source parameter
             string source = parameters["source"]?.ToObject<string>();
             if (string.IsNullOrEmpty(source))
@@ -95,6 +108,11 @@ namespace McpUnity.Tools
                     _updateCallbackRegistered = true;
                 }
             }
+        }
+
+        private static bool IsPackageInstallationAllowed(bool isBatchMode, bool allowPackageInstallation)
+        {
+            return !isBatchMode && allowPackageInstallation;
         }
         
         /// <summary>

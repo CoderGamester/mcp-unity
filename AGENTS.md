@@ -13,6 +13,8 @@
 ### Key defaults & invariants
 - **Unity WebSocket endpoint**: `ws://localhost:8090/McpUnity` by default.
 - **Config file**: `ProjectSettings/McpUnitySettings.json` (written/read by Unity; read opportunistically by Node).
+- **Authentication token**: `Library/McpUnity/bridge-token` (256-bit hex secret; never commit or copy into project settings).
+- **Handshake security**: clients authenticate as `mcp-unity:<token>` with HTTP Basic and must omit `Origin`; every supplied Origin is rejected.
 - **Execution thread**: Tool/resource execution is dispatched via `EditorCoroutineUtility` and runs on the **Unity main thread**. Keep synchronous work short; use async patterns for long work.
 
 ### Repo layout (where to change what)
@@ -52,6 +54,7 @@ The Unity settings file is the shared contract:
   - **RequestTimeoutSeconds** (default **10**): Node request timeout.
   - **AllowBatchModeServer** (default **false**): permits a persistent MCP host in Unity `-batchmode`; package installation remains disabled in batch mode.
   - **AllowRemoteConnections** (default **false**): Unity binds to `0.0.0.0` when enabled; otherwise `localhost`.
+  - **AllowPackageInstallation** (default **false**): permits `add_package`; keep disabled unless both client and package source are trusted.
   - **EnableInfoLogs**: Unity console logging verbosity.
   - **NpmExecutablePath**: optional npm path for Unity-driven install/build.
 
@@ -60,6 +63,13 @@ Node resolves bridge configuration in this order:
 - `MCP_UNITY_SETTINGS_PATH` when set;
 - `ProjectSettings/McpUnitySettings.json` discovered above the installed Node module, then above the current working directory.
 
+Node resolves authentication separately and fails closed in this order:
+- `MCP_UNITY_AUTH_TOKEN`;
+- the file named by `MCP_UNITY_AUTH_TOKEN_PATH`;
+- `Library/McpUnity/bridge-token` beside the discovered Unity project.
+
+An explicitly configured missing, empty, or malformed token never falls back. Generated client configs set both `MCP_UNITY_SETTINGS_PATH` and `MCP_UNITY_AUTH_TOKEN_PATH`.
+
 If no valid setting is found, Node falls back to:
 - **host**: `localhost`
 - **port**: `8090`
@@ -67,6 +77,7 @@ If no valid setting is found, Node falls back to:
 
 **Remote connection note**:
 - If Unity is on another machine, set `AllowRemoteConnections=true` in Unity and set `UNITY_HOST=<unity_machine_ip_or_hostname>` for the Node process.
+- Remote transport is plaintext `ws://`; restrict it to a trusted network, VPN, or SSH tunnel. Use `MCP_UNITY_AUTH_TOKEN` when the remote bridge cannot read the project token file.
 
 **Persistent headless host note**:
 - Batch mode is disabled by default. Enable `AllowBatchModeServer` or launch Unity with `MCP_UNITY_ALLOW_BATCH_MODE=true` for a long-lived headless MCP host; npm installation/build remains skipped in batch mode.
@@ -125,6 +136,7 @@ If no valid setting is found, Node falls back to:
 - Update versions consistently:
   - Unity package `package.json` (`version`)
   - Node server `Server~/package.json` (`version`)
+  - Node lockfile, MCP protocol metadata, dashboard metadata, and `McpUnitySettings.ServerVersion`
 - Rebuild Node output: `cd Server~ && npm run build`
 
 ### Available tools (current)
@@ -132,7 +144,7 @@ If no valid setting is found, Node falls back to:
 - `select_gameobject` — Select GameObjects in hierarchy
 - `update_gameobject` — Update or create GameObject properties
 - `update_component` — Update or add components on GameObjects
-- `add_package` — Install packages via Package Manager
+- `add_package` — Install packages via Package Manager (disabled by default; requires `AllowPackageInstallation=true`)
 - `run_tests` — Run Unity Test Runner tests
 - `send_console_log` — Send logs to Unity console
 - `add_asset_to_scene` — Add assets to scene

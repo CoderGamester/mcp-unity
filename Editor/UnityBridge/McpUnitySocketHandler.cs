@@ -72,6 +72,10 @@ namespace McpUnity.Unity
         {
             _server = server;
             _connectionGeneration = connectionGeneration;
+
+            // Native bridge clients do not send Origin. Browsers always do, and must never be
+            // allowed to drive the Editor through a cross-site WebSocket connection.
+            OriginValidator = origin => origin == null;
         }
 
         /// <summary>

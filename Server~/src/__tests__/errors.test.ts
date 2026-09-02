@@ -85,6 +85,7 @@ describe('handleError', () => {
 describe('ErrorType', () => {
   it('should have all expected error types', () => {
     expect(ErrorType.CONNECTION).toBe('connection_error');
+    expect(ErrorType.AUTHENTICATION).toBe('authentication_error');
     expect(ErrorType.TOOL_EXECUTION).toBe('tool_execution_error');
     expect(ErrorType.RESOURCE_FETCH).toBe('resource_fetch_error');
     expect(ErrorType.VALIDATION).toBe('validation_error');

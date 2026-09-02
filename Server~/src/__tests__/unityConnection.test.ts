@@ -44,6 +44,8 @@ const { McpUnityError, ErrorType } = await import('../utils/errors');
 // Type imports
 import type { ConnectionStateChange } from '../unity/unityConnection';
 
+const TEST_AUTH_TOKEN = 'a'.repeat(64);
+
 // Create a logger that doesn't output anything (for testing)
 const createTestLogger = () => {
   process.env.LOGGING = 'false';
@@ -69,6 +71,7 @@ describe('UnityConnection', () => {
       host: 'localhost',
       port: 8090,
       requestTimeout: 5000,
+      authToken: TEST_AUTH_TOKEN,
       clientName: 'TestClient',
       minReconnectDelay: 100,
       maxReconnectDelay: 1000,
@@ -177,23 +180,46 @@ describe('UnityConnection', () => {
   });
 
   describe('WebSocket options', () => {
-    it('sends the MCP client name as a header without setting WebSocket origin', async () => {
+    it('sends Basic authentication and the MCP client name without setting WebSocket origin', async () => {
       const connectPromise = connection.connect();
+
+      const expectedAuthorization = `Basic ${Buffer.from(`mcp-unity:${TEST_AUTH_TOKEN}`).toString('base64')}`;
 
       expect(mockWebSocketConstructor).toHaveBeenCalledWith(
         'ws://localhost:8090/McpUnity',
         {
           headers: {
-            'X-Client-Name': 'TestClient'
+            'X-Client-Name': 'TestClient',
+            'Authorization': expectedAuthorization
           }
         }
       );
 
       const [, options] = mockWebSocketConstructor.mock.calls[0];
       expect(options).not.toHaveProperty('origin');
+      expect(options.headers).not.toHaveProperty('Origin');
 
       mockWebSocketInstances[0].onopen();
       await connectPromise;
+    });
+
+    it.each([401, 403])('treats HTTP %i as terminal authentication failure', async (statusCode) => {
+      const emittedErrors: InstanceType<typeof McpUnityError>[] = [];
+      connection.on('error', error => emittedErrors.push(error));
+
+      const connectPromise = connection.connect();
+      const socket = mockWebSocketInstances[0];
+      const unexpectedResponseCall = socket.on.mock.calls.find(([eventName]: [string]) => eventName === 'unexpected-response');
+
+      expect(unexpectedResponseCall).toBeDefined();
+      unexpectedResponseCall[1]({}, { statusCode });
+
+      await expect(connectPromise).rejects.toMatchObject({ type: ErrorType.AUTHENTICATION });
+      expect(connection.connectionState).toBe(ConnectionState.Disconnected);
+      expect(mockWebSocketConstructor).toHaveBeenCalledTimes(1);
+      expect(socket.terminate).toHaveBeenCalled();
+      expect(emittedErrors).toHaveLength(1);
+      expect(emittedErrors[0].message).not.toContain(TEST_AUTH_TOKEN);
     });
   });
 
@@ -221,6 +247,7 @@ describe('Exponential Backoff Configuration', () => {
       host: 'localhost',
       port: 8090,
       requestTimeout: 5000,
+      authToken: TEST_AUTH_TOKEN,
       minReconnectDelay: 1000,
       maxReconnectDelay: 30000,
       reconnectBackoffMultiplier: 2
@@ -253,6 +280,7 @@ describe('Connection timeout handling', () => {
       host: 'localhost',
       port: 8090,
       requestTimeout: 60000,
+      authToken: TEST_AUTH_TOKEN,
       connectTimeout: 250,
       minReconnectDelay: 100,
       maxReconnectDelay: 1000,

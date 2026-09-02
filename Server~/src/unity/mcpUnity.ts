@@ -63,6 +63,8 @@ export class McpUnity {
   private port: number = 8090;
   private host: string = 'localhost';
   private requestTimeout = 10000;
+  private authToken: string = '';
+  private startupError: McpUnityError | null = null;
 
   private connection: UnityConnection | null = null;
   private pendingRequests: Map<string, PendingRequest> = new Map<string, PendingRequest>();
@@ -129,6 +131,7 @@ export class McpUnity {
         host: this.host,
         port: this.port,
         requestTimeout: this.requestTimeout,
+        authToken: this.authToken,
         clientName: this.clientName,
         // Use defaults for reconnection and heartbeat from UnityConnection
       };
@@ -146,20 +149,30 @@ export class McpUnity {
 
       this.connection.on('error', (error: McpUnityError) => {
         this.logger.error(`Connection error: ${error.message}`);
+        if (error.type === ErrorType.AUTHENTICATION) {
+          this.startupError = error;
+          this.commandQueue.clear(error.message);
+        }
         // Reject pending requests on connection error
         this.rejectAllPendingRequests(error);
       });
 
       this.logger.info('Attempting to connect to Unity WebSocket...');
       await this.connection.connect();
+      this.startupError = null;
       this.logger.info('Successfully connected to Unity WebSocket');
 
       if (clientName) {
         this.logger.info(`Client identified to Unity as: ${clientName}`);
       }
     } catch (error) {
+      if (error instanceof McpUnityError && error.type === ErrorType.AUTHENTICATION) {
+        this.startupError = error;
+      }
       this.logger.warn(`Could not connect to Unity WebSocket: ${error instanceof Error ? error.message : String(error)}`);
-      this.logger.warn('Will retry connection on next request (with automatic reconnection)');
+      if (!(error instanceof McpUnityError) || error.type !== ErrorType.AUTHENTICATION) {
+        this.logger.warn('Will retry connection on next request (with automatic reconnection)');
+      }
     }
 
     return Promise.resolve();
@@ -175,6 +188,7 @@ export class McpUnity {
     this.port = config.port;
     this.host = config.host;
     this.requestTimeout = config.requestTimeout;
+    this.authToken = config.authToken;
   }
 
   /**
@@ -315,6 +329,10 @@ export class McpUnity {
    * @param options Optional settings for the request
    */
   public async sendRequest(request: UnityRequest, options: SendRequestOptions = {}): Promise<any> {
+    if (this.startupError?.type === ErrorType.AUTHENTICATION) {
+      throw this.startupError;
+    }
+
     const { queueIfDisconnected = this.queueingEnabled, timeout } = options;
     const requestId = request.id as string || uuidv4();
     const message: UnityRequest = {
@@ -379,6 +397,11 @@ export class McpUnity {
       // Connection successful, send the request
       return this.sendRequestInternal(message, timeout);
     } catch (error) {
+      if (error instanceof McpUnityError && error.type === ErrorType.AUTHENTICATION) {
+        this.startupError = error;
+        throw error;
+      }
+
       // Connection failed - if queuing is enabled, queue the command
       if (queueIfDisconnected) {
         this.logger.debug(`Queuing command ${requestId} (${request.method}) - connection failed, will retry`);

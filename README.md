@@ -437,7 +437,17 @@ The Unity-side WebSocket server starts normally when opted in, but it never runs
 
 ## Bridge Configuration Resolution
 
-The Node bridge resolves each connection value in this order: its environment variable (`UNITY_PORT`, `UNITY_HOST`, or `UNITY_REQUEST_TIMEOUT`), `MCP_UNITY_SETTINGS_PATH`, the `ProjectSettings/McpUnitySettings.json` file found above the installed package, then a file found above its working directory, and finally the defaults. Generated MCP configurations set `MCP_UNITY_SETTINGS_PATH` explicitly. The bridge logs the value source and warns before falling back to defaults.
+The Node bridge resolves each connection value in this order: its environment variable (`UNITY_PORT`, `UNITY_HOST`, or `UNITY_REQUEST_TIMEOUT`), `MCP_UNITY_SETTINGS_PATH`, the `ProjectSettings/McpUnitySettings.json` file found above the installed package, then a file found above its working directory, and finally the defaults. Generated MCP configurations set `MCP_UNITY_SETTINGS_PATH` and `MCP_UNITY_AUTH_TOKEN_PATH` explicitly. The bridge logs the value source and warns before falling back to defaults.
+
+## Bridge Security and Package Installation
+
+MCP Unity creates a per-project 256-bit authentication token at `Library/McpUnity/bridge-token`. Token resolution is strict: `MCP_UNITY_AUTH_TOKEN` takes precedence, followed by `MCP_UNITY_AUTH_TOKEN_PATH`, followed by the token beside the discovered Unity project. Explicit missing or malformed values fail without fallback. Generated configurations use the token-file path and never copy the secret into `ProjectSettings`.
+
+The Unity endpoint requires HTTP Basic credentials with username `mcp-unity`, and rejects every WebSocket handshake that supplies an `Origin` header. Direct WebSocket integrations must authenticate and omit `Origin`. Use the Server Window to copy or regenerate the token; after rotation, restart all MCP client processes.
+
+The `add_package` tool is disabled by default because Unity packages can execute Editor code when they compile. Enable **Allow Package Installation** in Tools > MCP Unity > Server Window, or set `AllowPackageInstallation` to `true` in `ProjectSettings/McpUnitySettings.json`, only when package sources and MCP clients are trusted.
+
+Version 1.5.0 intentionally rejects 1.4.x Node bridges. Upgrade both the Unity and Node package components, run the Unity Configure action again if the package-cache path changed, and restart MCP clients.
 
 ## Optional: Allow Remote MCP Bridge Connections
 
@@ -449,6 +459,8 @@ By default, the WebSocket server binds to 'localhost'. To allow MCP bridge conne
 4. Unity will bind the WebSocket server to '0.0.0.0' (all interfaces)
 5. Restart the Node.js server to apply the new host configuration
 6. Set the environment variable UNITY_HOST to your Unity machine's IP address when running the MCP bridge remotely: `UNITY_HOST=192.168.1.100 node server.js`
+
+Remote transport remains unencrypted `ws://`. Authentication prevents unauthorized access but does not hide traffic; restrict remote use to a trusted network, VPN, or SSH tunnel. A remote bridge that cannot read the Unity project token file must receive `MCP_UNITY_AUTH_TOKEN` through a secure secret mechanism.
 
 ## <a name="debug-server"></a>Debugging the Server
 

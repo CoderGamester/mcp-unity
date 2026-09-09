@@ -12,6 +12,7 @@ using WebSocketSharp.Net;
 using WebSocketSharp.Server;
 using System.IO;
 using System.Net.Sockets;
+using System.Reflection;
 using UnityEditor.Callbacks;
 
 namespace McpUnity.Unity
@@ -40,8 +41,10 @@ namespace McpUnity.Unity
         private readonly Dictionary<string, McpToolBase> _tools = new Dictionary<string, McpToolBase>();
         private readonly Dictionary<string, McpResourceBase> _resources = new Dictionary<string, McpResourceBase>();
 
-        private const int DelayedStartMaxAttempts = 10;
-        private static readonly double[] DelayedStartRetryDelaySeconds = { 0.25d, 0.5d, 1d, 2d, 3d, 5d };
+        // Retry budget: a listener left bound by a previous editor session can take minutes to be
+        // released by Windows, so give up only after ~15 minutes rather than ~30 seconds.
+        private const int DelayedStartMaxAttempts = 150;
+        private static readonly double[] DelayedStartRetryDelaySeconds = { 0.25d, 0.5d, 1d, 2d, 3d, 5d, 5d, 5d, 5d, 5d, 10d, 10d };
         private const string AllowBatchModeEnvironmentVariable = "MCP_UNITY_ALLOW_BATCH_MODE";
 
         // Connect + read budget for the post-start liveness probe. Generous enough not to trip on a
@@ -49,6 +52,16 @@ namespace McpUnity.Unity
         private const int LivenessProbeTimeoutMs = 2000;
 
         private WebSocketServer _webSocketServer;
+
+        // The server that currently owns the listening socket. Held statically so the
+        // assembly-reload hook can always close that socket, even after the singleton has been
+        // replaced or cleared. See ForceCloseListener for why that matters.
+        private static WebSocketServer _socketOwner;
+
+        // Every WebSocketServer created in this domain. A failed start can leave its listener bound
+        // and unreachable through the normal fields, so keep them all here and force them closed on
+        // the next bind failure. Upstream issue #141.
+        private static readonly List<WebSocketServer> _knownServers = new List<WebSocketServer>();
         private CancellationTokenSource _cts;
         private TestRunnerService _testRunnerService;
         private ConsoleLogsService _consoleLogsService;
@@ -174,30 +187,43 @@ namespace McpUnity.Unity
             _livenessProbeCancellation?.Cancel();
             McpBackgroundTick.Stop();
 
-            if (_webSocketServer == null)
+            var server = _webSocketServer;
+            DiagLog($"StopServer enter: server={(server != null)}, listening={(server != null && server.IsListening)}");
+            if (server == null)
             {
                 Clients.Clear();
                 return;
             }
 
+            // Order matters. CloseAllClients touches live sessions and can throw (half-closed or
+            // abandoned client sockets). If it does, the listening socket MUST still be closed:
+            // a listener left bound across a domain reload can never be closed afterwards, and every
+            // later bind then fails with AddressAlreadyInUse forever (upstream issue #141).
             try
             {
                 CloseAllClients(closeCode ?? 1000, closeReason ?? "Server stopping");
+            }
+            catch (Exception ex)
+            {
+                McpLogger.LogWarning($"CloseAllClients failed (continuing to close the listener): {ex.Message}");
+            }
 
-                _webSocketServer?.Stop();
-
-                McpLogger.LogInfo("WebSocket server stopped");
+            try
+            {
+                server.Stop();
             }
             catch (Exception ex)
             {
                 McpLogger.LogError($"Error during WebSocketServer.Stop(): {ex.Message}\n{ex.StackTrace}");
             }
-            finally
-            {
-                _webSocketServer = null;
-                Clients.Clear();
-                McpLogger.LogInfo("WebSocket server stopped and resources cleaned up.");
-            }
+
+            // Unconditional: even if Stop() was a no-op or threw, release the port now.
+            ForceCloseListener(server);
+
+            _webSocketServer = null;
+            _socketOwner = null;
+            Clients.Clear();
+            McpLogger.LogInfo("WebSocket server stopped and resources cleaned up.");
         }
 
         /// <summary>
@@ -329,7 +355,18 @@ namespace McpUnity.Unity
             // needs the Unity WebSocket server, so it must provide a prebuilt Node bridge itself.
             if (!Application.isBatchMode)
             {
-                InstallServer();
+                // Server~ is optional: MCP hosts that talk to this WebSocket server directly do not
+                // need Unity to install/build a Node server, and a missing folder must not spam errors.
+                string serverPath = null;
+                try { serverPath = McpUtils.GetServerPath(); } catch { }
+                if (!string.IsNullOrEmpty(serverPath) && Directory.Exists(serverPath))
+                {
+                    InstallServer();
+                }
+                else
+                {
+                    McpLogger.LogInfo("Skipping MCP Node server installation: Server~ not present in the embedded package.");
+                }
             }
             else
             {
@@ -373,15 +410,23 @@ namespace McpUnity.Unity
                 string authenticationToken = McpUnityAuthentication.GetOrCreateToken();
                 int connectionGeneration = Interlocked.Increment(ref _connectionGeneration);
                 var host = McpUnitySettings.Instance.AllowRemoteConnections ? "0.0.0.0" : "localhost";
+                // NOTE: do NOT set ReuseAddress here. With SO_REUSEADDR Windows answers WSAEACCES
+                // (AccessDenied) instead of AddressAlreadyInUse when the port is held by a socket
+                // that was created with SO_EXCLUSIVEADDRUSE, and connections can also be delivered to
+                // the stale listener instead of this one. Waiting for the port to be released and
+                // retrying is the reliable path (see the retry budget below).
                 webSocketServer = new WebSocketServer($"ws://{host}:{McpUnitySettings.Instance.Port}");
+                TrackServer(webSocketServer);
                 ConfigureWebSocketSecurity(webSocketServer, authenticationToken);
                 webSocketServer.Log.Output = (data, path) => { };
                 webSocketServer.AddWebSocketService("/McpUnity", () => new McpUnitySocketHandler(this, connectionGeneration));
                 webSocketServer.Start();
                 _webSocketServer = webSocketServer;
+                _socketOwner = webSocketServer;
                 _activeConnectionGeneration = connectionGeneration;
                 McpBackgroundTick.Start();
                 McpLogger.LogInfo($"WebSocket server started successfully on {host}:{McpUnitySettings.Instance.Port}.");
+                DiagLog($"START OK: {host}:{McpUnitySettings.Instance.Port}, listenerBound={webSocketServer.IsListening}");
 
                 // Start() succeeding only proves the bind succeeded, not that the port is being
                 // serviced. Confirm the latter out-of-band (see the method's remarks). The probe
@@ -394,9 +439,16 @@ namespace McpUnity.Unity
 
                 return StartServerResult.Started;
             }
-            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
+            // AccessDenied is what Windows reports when the port is held by a socket created with
+            // SO_EXCLUSIVEADDRUSE; treat it exactly like "port busy" so the retry budget applies.
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse ||
+                                             ex.SocketErrorCode == SocketError.AccessDenied)
             {
                 CleanupFailedStart(webSocketServer);
+
+                // A previous start in this same domain may still hold the port with a listener that
+                // never got closed. Close every listener we ever created before retrying.
+                ForceCloseAllKnownListeners();
                 string message = $"Failed to start WebSocket server: Port {McpUnitySettings.Instance.Port} is already in use. {ex.Message}";
                 if (logAddressInUseAsError)
                 {
@@ -733,6 +785,8 @@ namespace McpUnity.Unity
                 {
                     webSocketServer.Stop();
                 }
+
+                ForceCloseListener(webSocketServer);
             }
             catch (Exception ex)
             {
@@ -743,6 +797,11 @@ namespace McpUnity.Unity
                 if (ReferenceEquals(_webSocketServer, webSocketServer))
                 {
                     _webSocketServer = null;
+                }
+
+                if (ReferenceEquals(_socketOwner, webSocketServer))
+                {
+                    _socketOwner = null;
                 }
 
                 Clients.Clear();
@@ -987,9 +1046,137 @@ namespace McpUnity.Unity
         /// </summary>
         private static void OnBeforeAssemblyReload()
         {
-            if (_instance == null) return;
-            
-            _instance.StopServer();
+            DiagLog($"beforeAssemblyReload: instance={(_instance != null)}, owner={(_socketOwner != null)}, " +
+                    $"ownerListening={(_socketOwner != null && _socketOwner.IsListening)}");
+            // Prefer the recorded socket owner over the singleton: if the singleton was already
+            // torn down or replaced, stopping it would leave the listening socket bound, and a
+            // socket left bound across the reload can never be closed from managed code again
+            // (upstream issue #141: every later start fails with "AddressAlreadyInUse").
+            if (_instance != null)
+            {
+                try
+                {
+                    _instance.StopServer();
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    McpLogger.LogWarning($"StopServer during assembly reload failed: {ex.Message}");
+                }
+            }
+
+            // No singleton left to stop: close the recorded socket directly, otherwise it stays bound
+            // across the reload with nothing left able to close it.
+            ForceCloseListener(_socketOwner);
+        }
+
+        /// <summary>
+        /// Closes the underlying TcpListener of a websocket-sharp server.
+        /// </summary>
+        /// <remarks>
+        /// <c>WebSocketServer.Stop()</c> is supposed to release the port, but on Windows the listener
+        /// can survive it and keep accepting connections with no managed handler behind them: the port
+        /// looks alive (TCP connect succeeds) while every client hangs. Once the domain that created
+        /// that socket unloads, its finalizers never run, so the handle is released only when the
+        /// editor process exits. Closing the listener (and the raw socket) explicitly makes the
+        /// release deterministic. Upstream issue #141.
+        /// </remarks>
+        /// <summary>
+        /// Lifecycle trace written straight to a file: Debug.Log lines emitted during a domain
+        /// reload can be dropped, which makes the port leak impossible to diagnose.
+        /// </summary>
+        private static void DiagLog(string message)
+        {
+            try
+            {
+                string dir = Path.Combine(Directory.GetCurrentDirectory(), "Temp");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "mcp_bridge_diag.log"),
+                    $"{DateTime.Now:HH:mm:ss.fff} [pid {System.Diagnostics.Process.GetCurrentProcess().Id}] {message}{Environment.NewLine}");
+            }
+            catch
+            {
+                // Diagnostics must never break the bridge.
+            }
+        }
+
+        private static void TrackServer(WebSocketServer server)
+        {
+            if (server == null || _knownServers.Contains(server))
+            {
+                return;
+            }
+
+            _knownServers.Add(server);
+        }
+
+        private static void ForceCloseAllKnownListeners()
+        {
+            int known = _knownServers.Count;
+            int closed = 0;
+            for (int i = _knownServers.Count - 1; i >= 0; i--)
+            {
+                try
+                {
+                    if (ForceCloseListener(_knownServers[i])) closed++;
+                }
+                catch
+                {
+                    // Best effort only.
+                }
+            }
+
+            _knownServers.Clear();
+            DiagLog($"ForceCloseAllKnownListeners: known={known}, closed={closed}");
+        }
+
+        private static bool ForceCloseListener(WebSocketServer server)
+        {
+            if (server == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                object listener = null;
+                for (Type type = server.GetType(); type != null && listener == null; type = type.BaseType)
+                {
+                    FieldInfo field = type.GetField("_listener", BindingFlags.Instance | BindingFlags.NonPublic);
+                    if (field != null)
+                    {
+                        listener = field.GetValue(server);
+                    }
+                }
+
+                if (listener == null)
+                {
+                    DiagLog("ForceCloseListener: no _listener field found");
+                    return false;
+                }
+
+                Socket socket = null;
+                bool wasBound = false;
+                if (listener is TcpListener tcpListener)
+                {
+                    try { socket = tcpListener.Server; wasBound = socket != null && socket.IsBound; } catch { }
+                    try { tcpListener.Stop(); } catch (Exception ex) { McpLogger.LogWarning($"TcpListener.Stop() failed: {ex.Message}"); }
+                }
+                else
+                {
+                    listener.GetType().GetMethod("Stop", Type.EmptyTypes)?.Invoke(listener, null);
+                }
+
+                try { socket?.Close(); } catch { }
+
+                DiagLog($"ForceCloseListener: type={listener.GetType().Name}, wasBound={wasBound}");
+                return wasBound;
+            }
+            catch (Exception ex)
+            {
+                McpLogger.LogWarning($"ForceCloseListener failed: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>
@@ -999,6 +1186,7 @@ namespace McpUnity.Unity
         /// </summary>
         private static void OnAfterAssemblyReload()
         {
+            DiagLog($"afterAssemblyReload: instance={(_instance != null)}");
             if (!ShouldRunInCurrentProcess() || _instance == null) return;
             
             if (McpUnitySettings.Instance.AutoStartServer && !_instance.IsListening)

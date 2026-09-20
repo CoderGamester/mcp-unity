@@ -915,6 +915,14 @@ namespace McpUnity.Unity
             GetTestsResource getTestsResource = new GetTestsResource(_testRunnerService);
             _resources.Add(getTestsResource.Name, getTestsResource);
             
+            // Register GetSceneInfoResource
+            GetSceneInfoResource getSceneInfoResource = new GetSceneInfoResource();
+            _resources.Add(getSceneInfoResource.Name, getSceneInfoResource);
+            
+            // Register CreateSceneResource
+            CreateSceneResource createSceneResource = new CreateSceneResource();
+            _resources.Add(createSceneResource.Name, createSceneResource);
+            
             // Register GetGameObjectResource
             GetGameObjectResource getGameObjectResource = new GetGameObjectResource();
             _resources.Add(getGameObjectResource.Name, getGameObjectResource);

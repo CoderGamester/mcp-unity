@@ -1,12 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpUnity } from "../unity/mcpUnity.js";
-import { McpUnityError, ErrorType } from "../utils/errors.js";
-import * as z from "zod";
 import { Logger } from "../utils/logger.js";
+import * as z from "zod";
 
 const toolName = "create_scene";
-const toolDescription =
-  "Creates a new scene and saves it to the specified path";
+const toolDescription = "Creates a new scene and saves it to the specified path";
 
 const paramsSchema = z.object({
   sceneName: z
@@ -53,10 +51,7 @@ export function registerCreateSceneTool(
 
 async function toolHandler(mcpUnity: McpUnity, params: any) {
   if (!params.sceneName) {
-    throw new McpUnityError(
-      ErrorType.VALIDATION,
-      "'sceneName' must be provided"
-    );
+    throw new Error("'sceneName' must be provided");
   }
 
   const response = await mcpUnity.sendRequest({
@@ -65,16 +60,13 @@ async function toolHandler(mcpUnity: McpUnity, params: any) {
   });
 
   if (!response.success) {
-    throw new McpUnityError(
-      ErrorType.TOOL_EXECUTION,
-      response.message || "Failed to create scene"
-    );
+    throw new Error(response.message || "Failed to create scene");
   }
 
   return {
     content: [
       {
-        type: response.type,
+        type: response.type || "text",
         text: response.message || "Successfully created scene",
       },
     ],

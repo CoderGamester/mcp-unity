@@ -35,6 +35,8 @@ import { registerGetHierarchyResource } from './resources/getScenesHierarchyReso
 import { registerGetPackagesResource } from './resources/getPackagesResource.js';
 import { registerGetAssetsResource } from './resources/getAssetsResource.js';
 import { registerGetTestsResource } from './resources/getTestsResource.js';
+import { registerGetSceneInfoResource } from './resources/getSceneInfoResource.js';
+import { registerCreateSceneResource } from './resources/createSceneResource.js';
 import { registerGetGameObjectResource } from './resources/getGameObjectResource.js';
 import { registerUnityDashboardAppResource } from './resources/unityDashboardAppResource.js';
 import { registerGameObjectHandlingPrompt } from './prompts/gameobjectHandlingPrompt.js';
@@ -103,13 +105,15 @@ registerBatchExecuteTool(server, mcpUnity, toolLogger);
 
 // Register all resources into the MCP server
 registerGetTestsResource(server, mcpUnity, resourceLogger);
-registerGetGameObjectResource(server, mcpUnity, resourceLogger);
-registerGetMenuItemsResource(server, mcpUnity, resourceLogger);
-registerGetConsoleLogsResource(server, mcpUnity, resourceLogger);
-registerGetHierarchyResource(server, mcpUnity, resourceLogger);
-registerGetPackagesResource(server, mcpUnity, resourceLogger);
-registerGetAssetsResource(server, mcpUnity, resourceLogger);
-registerUnityDashboardAppResource(server, resourceLogger);
+            registerGetGameObjectResource(server, mcpUnity, resourceLogger);
+            registerGetMenuItemsResource(server, mcpUnity, resourceLogger);
+            registerGetConsoleLogsResource(server, mcpUnity, resourceLogger);
+            registerGetHierarchyResource(server, mcpUnity, resourceLogger);
+            registerGetPackagesResource(server, mcpUnity, resourceLogger);
+            registerGetAssetsResource(server, mcpUnity, resourceLogger);
+            registerUnityDashboardAppResource(server, resourceLogger);
+            registerGetSceneInfoResource(server, mcpUnity, resourceLogger);
+            registerCreateSceneResource(server, mcpUnity, resourceLogger);
 
 // Register all prompts into the MCP server
 registerGameObjectHandlingPrompt(server);

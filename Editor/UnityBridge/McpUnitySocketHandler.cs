@@ -75,7 +75,8 @@ namespace McpUnity.Unity
         }
 
         /// <summary>
-        /// Create a standardized error response
+        /// Create a standardized error response compatible with both Unity and Node sides.
+        /// Returns: { "success": false, "type": "text", "message": "...", "error": { "type": "...", "message": "..." } }
         /// </summary>
         /// <param name="message">Error message</param>
         /// <param name="errorType">Type of error</param>
@@ -84,6 +85,9 @@ namespace McpUnity.Unity
         {
             return new JObject
             {
+                ["success"] = false,
+                ["type"] = "text",
+                ["message"] = message,
                 ["error"] = new JObject
                 {
                     ["type"] = errorType,

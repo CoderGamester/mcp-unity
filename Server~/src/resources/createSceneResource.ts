@@ -12,14 +12,22 @@ export const resourceMimeType = 'application/json';
 export function registerCreateSceneResource(server: McpServer, mcpUnity: McpUnity, logger: Logger) {
   logger.info(`Registering resource: ${resourceName}`);
 
+  // Use a template with parameters for the create scene resource
+  const template = new ResourceTemplate(
+    resourceUri,
+    {
+      list: undefined
+    }
+  );
+
   server.resource(
     resourceName,
-    resourceUri,
+    template,
     {
       description: 'Creates a new Unity scene and saves it to the specified path',
       mimeType: resourceMimeType
     },
-    async (uri, variables) => {
+    async (uri: URL, variables: Variables, _extra: any) => {
       try {
         return await resourceHandler(mcpUnity, uri, variables, logger);
       } catch (error) {

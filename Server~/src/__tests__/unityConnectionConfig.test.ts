@@ -109,7 +109,8 @@ describe('Unity connection configuration', () => {
     const config = await resolveUnityConnectionConfig(logger, {
       cwd: path.join(temporaryDirectory, 'no-project'),
       modulePath: path.join(temporaryDirectory, 'global-server', 'build', 'unity', 'mcpUnity.js'),
-      environment: {}
+      environment: {},
+      disableSettingsRetry: true
     });
 
     expect(config).toMatchObject({ port: 8090, host: 'localhost', requestTimeout: 10000 });

@@ -26,6 +26,8 @@ export interface UnityConnectionConfigResolutionOptions {
   cwd?: string;
   environment?: NodeJS.ProcessEnv;
   modulePath?: string;
+  /** Disable settings file retry logic (for testing) */
+  disableSettingsRetry?: boolean;
 }
 
 export interface ResolvedUnityConnectionConfig {
@@ -50,29 +52,36 @@ export async function resolveUnityConnectionConfig(
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const environment = options.environment ?? process.env;
   const modulePath = path.resolve(options.modulePath ?? process.argv[1] ?? cwd);
+  const disableRetry = options.disableSettingsRetry ?? environment.MCP_UNITY_DISABLE_SETTINGS_RETRY === 'true';
   
-  // Add retry logic for settings file (handles race condition on first run)
-  const maxRetries = 30; // 30 seconds max wait
-  const retryDelayMs = 1000; // 1 second between retries
   let settingsFile: SettingsFileResult | undefined;
   
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  if (disableRetry) {
+    // Single attempt, no retry - used for testing
     settingsFile = await findSettingsFile(logger, cwd, modulePath, environment);
-    const settings = settingsFile?.settings ?? {};
+  } else {
+    // Add retry logic for settings file (handles race condition on first run)
+    const maxRetries = 30; // 30 seconds max wait
+    const retryDelayMs = 1000; // 1 second between retries
     
-    // Check if we have a valid port from settings (not just default)
-    const hasValidPort = settings.Port !== undefined && 
-                         typeof settings.Port === 'number' && 
-                         settings.Port >= 1 && settings.Port <= 65535;
-    
-    if (hasValidPort || attempt === maxRetries) {
-      // Either we have valid settings, or we've exhausted retries
-      break;
-    }
-    
-    if (attempt < maxRetries) {
-      logger.info(`McpUnitySettings.json not found or port not set. Waiting for Unity to create settings... (attempt ${attempt + 1}/${maxRetries})`);
-      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      settingsFile = await findSettingsFile(logger, cwd, modulePath, environment);
+      const settings = settingsFile?.settings ?? {};
+      
+      // Check if we have a valid port from settings (not just default)
+      const hasValidPort = settings.Port !== undefined && 
+                           typeof settings.Port === 'number' && 
+                           settings.Port >= 1 && settings.Port <= 65535;
+      
+      if (hasValidPort || attempt === maxRetries) {
+        // Either we have valid settings, or we've exhausted retries
+        break;
+      }
+      
+      if (attempt < maxRetries) {
+        logger.info(`McpUnitySettings.json not found or port not set. Waiting for Unity to create settings... (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      }
     }
   }
   

@@ -24,7 +24,7 @@ describe('CommandQueue', () => {
   describe('constructor', () => {
     it('should create with default configuration', () => {
       const stats = queue.getStats();
-      expect(stats.maxSize).toBe(100);
+      expect(stats.maxSize).toBe(1000);
       expect(stats.size).toBe(0);
     });
 

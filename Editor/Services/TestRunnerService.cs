@@ -16,13 +16,14 @@ namespace McpUnity.Services
     /// Service for accessing Unity Test Runner functionality
     /// Implements ICallbacks for TestRunnerApi.
     /// </summary>
-    public class TestRunnerService : ITestRunnerService, ICallbacks
+    public class TestRunnerService : ITestRunnerService, ICallbacks, IDisposable
     {
         private readonly TestRunnerApi _testRunnerApi;
         private TaskCompletionSource<JObject> _tcs;
         private bool _returnOnlyFailures;
         private bool _returnWithLogs;
         private List<ITestResultAdaptor> _results;
+        private bool _disposed;
 
         /// <summary>
         /// Constructor
@@ -32,6 +33,33 @@ namespace McpUnity.Services
             _testRunnerApi = ScriptableObject.CreateInstance<TestRunnerApi>();
             _results = new List<ITestResultAdaptor>();
             _testRunnerApi.RegisterCallbacks(this);
+        }
+
+        /// <summary>
+        /// Unregisters callbacks to prevent memory leaks
+        /// </summary>
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                try
+                {
+                    _testRunnerApi?.UnregisterCallbacks(this);
+                }
+                catch (Exception ex)
+                {
+                    McpLogger.LogWarning($"[MCP Unity] Error unregistering TestRunner callbacks: {ex.Message}");
+                }
+                _disposed = true;
+            }
+        }
+
+        /// <summary>
+        /// Finalizer to ensure cleanup
+        /// </summary>
+        ~TestRunnerService()
+        {
+            Dispose();
         }
 
         /// <summary>

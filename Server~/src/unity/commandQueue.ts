@@ -67,7 +67,7 @@ export interface EnqueueResult {
  * Default configuration values
  */
 const DEFAULT_CONFIG = {
-  maxSize: 100,
+  maxSize: 1000,
   defaultTimeout: 60000, // 60 seconds
   cleanupInterval: 5000  // 5 seconds
 };
@@ -129,6 +129,12 @@ export class CommandQueue {
 
     this.queue.push(queuedCommand);
     const position = this.queue.length;
+
+    // Warn when queue is getting full (80% capacity)
+    const capacityRatio = this.queue.length / this.config.maxSize;
+    if (capacityRatio >= 0.8) {
+      this.logger.warn(`Command queue at ${Math.round(capacityRatio * 100)}% capacity (${this.queue.length}/${this.config.maxSize})`);
+    }
 
     this.logger.debug(`Queued command ${command.id} (${command.request.method}), position: ${position}/${this.config.maxSize}`);
 

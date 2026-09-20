@@ -14,6 +14,13 @@ namespace McpUnity.Tools
     /// Tool for executing multiple operations in a single batch request.
     /// Supports sequential execution, stop-on-error, and atomic rollback.
     /// </summary>
+    /// <remarks>
+    /// <para><b>Important: Atomic rollback limitation</b></para>
+    /// <para>The <c>atomic</c> parameter uses Unity's <c>Undo</c> system for rollback, which only works in the Unity Editor.</para>
+    /// <para>In Play Mode, builds, or headless/batch mode, the Undo system is not available and atomic rollback will NOT work.</para>
+    /// <para>When <c>atomic=true</c> is used outside the Editor, operations will still execute sequentially with stop-on-error,</para>
+    /// <para>but no rollback will occur on failure. Consider this when designing automated workflows.</para>
+    /// </remarks>
     public class BatchExecuteTool : McpToolBase
     {
         private readonly Func<string, McpToolBase> _getTool;

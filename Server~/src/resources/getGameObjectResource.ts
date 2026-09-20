@@ -11,6 +11,11 @@ const resourceName = 'get_gameobject';
 const resourceUri = 'unity://gameobject/{idOrName}';
 const resourceMimeType = 'application/json';
 
+// Cache for GameObject list to avoid repeated hierarchy requests
+// TTL: 5 seconds - balance between freshness and performance
+const LIST_CACHE_TTL_MS = 5000;
+let gameObjectListCache: { data: any; timestamp: number } | null = null;
+
 /**
  * Creates and registers the GameObject resource with the MCP server
  * This resource provides access to GameObjects in Unity scenes
@@ -24,9 +29,8 @@ export function registerGetGameObjectResource(server: McpServer, mcpUnity: McpUn
   const resourceTemplate = new ResourceTemplate(
     resourceUri, 
     { 
-      // This list method is commented because is calling getHierarchyResource every second to the MCP client in the current format.
-      // TODO: Find a new way to implement this so that it doesn't request the list of game objects so often
-      list: undefined//async () => listGameObjects(mcpUnity, logger, resourceMimeType)
+      // Cached list method - fetches hierarchy only when cache expires
+      list: async () => listGameObjects(mcpUnity, logger, resourceMimeType)
     }
   );
   logger.info(`Registering resource: ${resourceName}`);
@@ -88,13 +92,22 @@ async function resourceHandler(mcpUnity: McpUnity, uri: URL, variables: Variable
 }
 
 /**
- * Get a list of all GameObjects in the scene
+ * Get a list of all GameObjects in the scene (with caching)
  * @param mcpUnity The McpUnity instance to communicate with Unity
  * @param logger The logger instance
  * @param resourceMimeType The MIME type for the resource
  * @returns A promise that resolves to a list of GameObject resources
  */
 async function listGameObjects(mcpUnity: McpUnity, logger: Logger, resourceMimeType: string) {
+  const now = Date.now();
+  
+  // Return cached data if still valid
+  if (gameObjectListCache && (now - gameObjectListCache.timestamp) < LIST_CACHE_TTL_MS) {
+    logger.debug(`[getGameObjectResource] Returning cached GameObject list (${gameObjectListCache.data.resources.length} resources)`);
+    return gameObjectListCache.data;
+  }
+  
+  // Fetch fresh hierarchy
   const hierarchyResponse = await mcpUnity.sendRequest({
     method: hierarchyResourceName,
     params: {}
@@ -108,7 +121,7 @@ async function listGameObjects(mcpUnity: McpUnity, logger: Logger, resourceMimeT
   // Process the hierarchy to create a list of GameObject references
   const gameObjects = processHierarchyToGameObjectList(hierarchyResponse.hierarchy || []);
 
-  logger.info(`[getGameObjectResource] Fetched hierarchy with ${gameObjects.length} GameObjects ${hierarchyResponse.hierarchy}`);
+  logger.info(`[getGameObjectResource] Fetched hierarchy with ${gameObjects.length} GameObjects`);
   
   // Create resources array with both instance ID and path URIs
   const resources: Array<{
@@ -139,7 +152,12 @@ async function listGameObjects(mcpUnity: McpUnity, logger: Logger, resourceMimeT
     }
   });
   
-  return { resources };
+  const result = { resources };
+  
+  // Update cache
+  gameObjectListCache = { data: result, timestamp: now };
+  
+  return result;
 }
 
 /**

@@ -5,6 +5,20 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { McpUnityError, ErrorType } from '../utils/errors.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
+/**
+ * Validates that either instanceId or objectPath is provided for GameObject operations
+ * @throws McpUnityError if neither is provided
+ */
+function validateGameObjectIdentifier(params: any): void {
+  if ((params.instanceId === undefined || params.instanceId === null) &&
+      (!params.objectPath || params.objectPath.trim() === '')) {
+    throw new McpUnityError(
+      ErrorType.VALIDATION,
+      "Either 'instanceId' or 'objectPath' must be provided"
+    );
+  }
+}
+
 // ============================================================================
 // Duplicate GameObject Tool
 // ============================================================================
@@ -45,14 +59,7 @@ export function registerDuplicateGameObjectTool(server: McpServer, mcpUnity: Mcp
 }
 
 async function duplicateHandler(mcpUnity: McpUnity, params: any): Promise<CallToolResult> {
-  // Validate parameters - require either instanceId or objectPath
-  if ((params.instanceId === undefined || params.instanceId === null) &&
-      (!params.objectPath || params.objectPath.trim() === '')) {
-    throw new McpUnityError(
-      ErrorType.VALIDATION,
-      "Either 'instanceId' or 'objectPath' must be provided"
-    );
-  }
+  validateGameObjectIdentifier(params);
 
   const response = await mcpUnity.sendRequest({
     method: duplicateToolName,
@@ -118,14 +125,7 @@ export function registerDeleteGameObjectTool(server: McpServer, mcpUnity: McpUni
 }
 
 async function deleteHandler(mcpUnity: McpUnity, params: any): Promise<CallToolResult> {
-  // Validate parameters - require either instanceId or objectPath
-  if ((params.instanceId === undefined || params.instanceId === null) &&
-      (!params.objectPath || params.objectPath.trim() === '')) {
-    throw new McpUnityError(
-      ErrorType.VALIDATION,
-      "Either 'instanceId' or 'objectPath' must be provided"
-    );
-  }
+  validateGameObjectIdentifier(params);
 
   const response = await mcpUnity.sendRequest({
     method: deleteToolName,
@@ -190,14 +190,7 @@ export function registerReparentGameObjectTool(server: McpServer, mcpUnity: McpU
 }
 
 async function reparentHandler(mcpUnity: McpUnity, params: any): Promise<CallToolResult> {
-  // Validate parameters - require either instanceId or objectPath
-  if ((params.instanceId === undefined || params.instanceId === null) &&
-      (!params.objectPath || params.objectPath.trim() === '')) {
-    throw new McpUnityError(
-      ErrorType.VALIDATION,
-      "Either 'instanceId' or 'objectPath' must be provided"
-    );
-  }
+  validateGameObjectIdentifier(params);
 
   const response = await mcpUnity.sendRequest({
     method: reparentToolName,

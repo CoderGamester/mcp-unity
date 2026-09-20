@@ -76,6 +76,22 @@ namespace McpUnity.Utils
 #endif
         }
 
+        /// <summary>
+        /// Resets the internal state for testing purposes.
+        /// Should only be called in test environments.
+        /// </summary>
+        internal static void ResetForTesting()
+        {
+#if UNITY_EDITOR_WIN
+            if (_timerId != UIntPtr.Zero)
+            {
+                try { KillTimer(IntPtr.Zero, _timerId); } catch { }
+                _timerId = UIntPtr.Zero;
+            }
+            _callbackRunning = 0;
+#endif
+        }
+
 #if UNITY_EDITOR_WIN
         private static void OnTimer(IntPtr hWnd, uint uMsg, UIntPtr nIDEvent, uint dwTime)
         {

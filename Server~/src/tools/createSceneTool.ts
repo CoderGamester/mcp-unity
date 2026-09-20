@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpUnity } from "../unity/mcpUnity.js";
 import { Logger } from "../utils/logger.js";
 import * as z from "zod";
+import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 const toolName = "create_scene";
 const toolDescription = "Creates a new scene and saves it to the specified path";
@@ -24,6 +25,9 @@ const paramsSchema = z.object({
     .describe("Whether to open/make the new scene active after creating it"),
 });
 
+// Type inferred from the schema for type-safe handler params
+type CreateSceneParams = z.infer<typeof paramsSchema>;
+
 export function registerCreateSceneTool(
   server: McpServer,
   mcpUnity: McpUnity,
@@ -35,7 +39,7 @@ export function registerCreateSceneTool(
     toolName,
     toolDescription,
     paramsSchema.shape,
-    async (params: any) => {
+    async (params: CreateSceneParams): Promise<CallToolResult> => {
       try {
         logger.info(`Executing tool: ${toolName}`, params);
         const result = await toolHandler(mcpUnity, params);
@@ -49,7 +53,7 @@ export function registerCreateSceneTool(
   );
 }
 
-async function toolHandler(mcpUnity: McpUnity, params: any) {
+async function toolHandler(mcpUnity: McpUnity, params: CreateSceneParams): Promise<CallToolResult> {
   if (!params.sceneName) {
     throw new Error("'sceneName' must be provided");
   }

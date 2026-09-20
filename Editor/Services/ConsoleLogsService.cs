@@ -29,6 +29,11 @@ namespace McpUnity.Services
             public DateTime Timestamp { get; set; }
         }
         
+        // Reflection cache for Unity internal API (avoids repeated reflection)
+        private static MethodInfo _logEntriesGetCountMethod;
+        private static bool _reflectionInitialized;
+        private static readonly object _reflectionLock = new object();
+        
         // Constants for log management
         private const int MaxLogEntries = 1000;
         private const int CleanupThreshold = 200; // Remove oldest entries when exceeding max
@@ -201,20 +206,41 @@ namespace McpUnity.Services
         
         /// <summary>
         /// Check if console was cleared using reflection (for Unity 2022.3)
+        /// Uses cached reflection to avoid repeated expensive reflection calls
         /// </summary>
         private void CheckConsoleClearViaReflection()
         {
+            // Initialize reflection once
+            if (!_reflectionInitialized)
+            {
+                lock (_reflectionLock)
+                {
+                    if (!_reflectionInitialized)
+                    {
+                        try
+                        {
+                            var logEntriesType = Type.GetType("UnityEditor.LogEntries,UnityEditor");
+                            if (logEntriesType != null)
+                            {
+                                _logEntriesGetCountMethod = logEntriesType.GetMethod("GetCount",
+                                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning($"[MCP Unity] Failed to initialize LogEntries reflection: {ex.Message}");
+                        }
+                        _reflectionInitialized = true;
+                    }
+                }
+            }
+            
+            // If reflection failed to initialize, skip this check
+            if (_logEntriesGetCountMethod == null) return;
+
             try
             {
-                // Get current log counts using LogEntries (internal Unity API)
-                var logEntriesType = Type.GetType("UnityEditor.LogEntries,UnityEditor");
-                if (logEntriesType == null) return;
-                
-                var getCountMethod = logEntriesType.GetMethod("GetCount",
-                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
-                if (getCountMethod == null) return;
-                
-                int currentTotalCount = (int)getCountMethod.Invoke(null, null);
+                int currentTotalCount = (int)_logEntriesGetCountMethod.Invoke(null, null);
                         
                 // If we had logs before, but now we don't, console was likely cleared
                 if (currentTotalCount == 0 && _logEntries.Count > 0)
@@ -224,8 +250,10 @@ namespace McpUnity.Services
             }
             catch (Exception ex)
             {
-                // Just log the error but don't break functionality
-                Debug.LogError($"[MCP Unity] Error checking console clear: {ex.Message}");
+                // Reflection invocation failed - clear cache so it retries next time
+                _logEntriesGetCountMethod = null;
+                _reflectionInitialized = false;
+                Debug.LogWarning($"[MCP Unity] LogEntries reflection failed, will retry: {ex.Message}");
             }
         }
         

@@ -189,6 +189,7 @@ namespace McpUnity.Utils
         /// Gets the absolute path to the Server directory containing package.json (root server dir).
         /// Works whether MCP Unity is installed via Package Manager or directly in the Assets folder
         /// </summary>
+        /// <returns>The server path, or null if not found</returns>
         public static string GetServerPath()
         {
             // First, try to find the package info via Package Manager
@@ -218,7 +219,7 @@ namespace McpUnity.Utils
 
             Debug.LogError(errorString);
 
-            return errorString;
+            return null;
         }
 
         /// <summary>
@@ -622,6 +623,11 @@ namespace McpUnity.Utils
         /// <summary>
         /// Gets the path to the GitHub Copilot config file (workspace .vscode/mcp.json)
         /// </summary>
+        /// <remarks>
+        /// GitHub Copilot and VS Code use .vscode/mcp.json in the project root.
+        /// Other VS Code-based editors (Cursor, Windsurf) may use different paths.
+        /// This path follows the VS Code workspace settings convention.
+        /// </remarks>
         /// <returns>The path to the GitHub Copilot config file</returns>
         private static string GetGitHubCopilotConfigPath()
         {
@@ -892,15 +898,16 @@ namespace McpUnity.Utils
 
             if (useCustomNpmPath)
             {
-                // Use the custom path directly
+                // Use the custom path directly - arguments passed as-is (no shell)
                 startInfo.FileName = npmExecutable;
                 startInfo.Arguments = arguments;
             }
             else if (Application.platform == RuntimePlatform.WindowsEditor)
             {
                 // Fallback to cmd.exe to find 'npm' in PATH
+                // Escape arguments for cmd.exe
                 startInfo.FileName = "cmd.exe";
-                startInfo.Arguments = $"/c npm {arguments}";
+                startInfo.Arguments = $"/c npm {EscapeForCmd(arguments)}";
             }
             else // macOS / Linux
             {
@@ -910,8 +917,10 @@ namespace McpUnity.Utils
                 // Source rc file to init version managers (nvm, fnm, volta) - GUI apps don't inherit shell env
                 string rcFile = shellName == "zsh" ? ".zshrc" : ".bashrc";
                 
+                // Escape arguments for shell to prevent injection
+                string escapedArgs = EscapeForShell(arguments);
                 startInfo.FileName = userShell;
-                startInfo.Arguments = $"-c \"source ~/{rcFile} 2>/dev/null || true; npm {arguments}\"";
+                startInfo.Arguments = $"-c \"source ~/{rcFile} 2>/dev/null || true; npm {escapedArgs}\"";
 
                 // Fallback PATH for common npm locations
                 string currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
@@ -954,6 +963,42 @@ namespace McpUnity.Utils
                 // Use commandToLog here
                 Debug.LogError($"[MCP Unity] Exception while running npm {arguments} in {workingDirectory}. Error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Escapes a string for safe use in cmd.exe /c command
+        /// </summary>
+        private static string EscapeForCmd(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return input;
+            
+            // Escape special cmd characters: & | < > ^ ( ) % ! " 
+            // Wrap in quotes if contains spaces or special chars
+            bool needsQuotes = input.Any(c => " &|<>()^%!\"".Contains(c));
+            string escaped = input.Replace("^", "^^")
+                                 .Replace("&", "^&")
+                                 .Replace("|", "^|")
+                                 .Replace("<", "^<")
+                                 .Replace(">", "^>")
+                                 .Replace("(", "^(")
+                                 .Replace(")", "^)")
+                                 .Replace("%", "^%")
+                                 .Replace("!", "^!")
+                                 .Replace("\"", "^\"");
+            
+            return needsQuotes ? $"\"{escaped}\"" : escaped;
+        }
+
+        /// <summary>
+        /// Escapes a string for safe use in POSIX shell (bash/zsh)
+        /// </summary>
+        private static string EscapeForShell(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return input;
+            
+            // For single-quoted strings in shell, only single quote needs escaping
+            // Pattern: '...'\''...' (end quote, escaped quote, start quote)
+            return "'" + input.Replace("'", "'\\''") + "'";
         }
 
         /// <summary>

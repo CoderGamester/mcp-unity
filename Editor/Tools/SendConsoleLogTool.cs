@@ -24,7 +24,7 @@ namespace McpUnity.Tools
         {
             // Extract parameters
             string message = parameters["message"]?.ToObject<string>();
-            string type = parameters["type"]?.ToObject<string>()?.ToLower() ?? "info";
+            string type = parameters["type"]?.ToObject<string>()?.ToLowerInvariant() ?? "info";
  
             if (string.IsNullOrEmpty(message))
             {
